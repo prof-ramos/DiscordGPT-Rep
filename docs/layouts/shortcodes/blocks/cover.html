@@ -1,0 +1,15 @@
+{{- /* Hero cover block */ -}}
+{{- $title := .Get "title" | default .Page.Title -}}
+{{- $height := .Get "height" | default "auto" -}}
+{{- $color := .Get "color" | default "primary" -}}
+{{- $imageAnchor := .Get "image_anchor" | default "center" -}}
+
+<section class="block-cover block-cover--{{ $color }}" data-anchor="{{ $imageAnchor }}" data-height="{{ $height }}">
+  <div class="block-cover__inner">
+    {{- if $title }}<h1 class="block-cover__title">{{ $title }}</h1>{{ end -}}
+    <div class="block-cover__content">
+      {{- .Inner -}}
+    </div>
+  </div>
+</section>
+

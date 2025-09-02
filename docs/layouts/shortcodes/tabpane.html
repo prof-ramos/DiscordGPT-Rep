@@ -1,0 +1,7 @@
+{{- /* Tabs container (alias: tabpane) simple wrapper, same as tabs */ -}}
+{{- $name := .Get "name" | default "tabs" -}}
+{{- $safe := $name | anchorize -}}
+{{- $id := printf "%s-%d" $safe (now.UnixNano) -}}
+<div class="tabs" id="{{ $id }}" data-tabs-id="{{ $id }}">
+  {{- .Inner -}}
+</div>

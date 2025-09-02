@@ -1,0 +1,8 @@
+{{- /* Lead section block */ -}}
+{{- $color := .Get "color" | default "white" -}}
+<section class="block-lead block-lead--{{ $color }}">
+  <div class="block-lead__inner">
+    {{- .Inner -}}
+  </div>
+  </section>
+

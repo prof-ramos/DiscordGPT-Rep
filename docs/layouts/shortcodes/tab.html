@@ -1,0 +1,10 @@
+{{- /* Get tab title: allow name/title or positional */ -}}
+{{- $title := .Get "name" | default (.Get "title") | default (.Get 0) -}}
+{{- $content := .Inner -}}
+
+{{- /* Render a simple tab block; container/JS will build nav */ -}}
+<div class="tab" data-title="{{ $title }}">
+  <div class="tab-content">
+    {{- $content -}}
+  </div>
+</div>

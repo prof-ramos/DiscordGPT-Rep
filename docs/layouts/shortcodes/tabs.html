@@ -1,0 +1,7 @@
+{{- /* Tabs container wrapper; child `tab` shortcodes render simple blocks. */ -}}
+{{- $name := .Get "name" | default "tabs" -}}
+{{- $safe := $name | anchorize -}}
+{{- $id := printf "%s-%d" $safe (now.UnixNano) -}}
+<div class="tabs" id="{{ $id }}" data-tabs-id="{{ $id }}">
+  {{- .Inner -}}
+</div>

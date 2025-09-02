@@ -1,0 +1,110 @@
+name: Deploy Hugo Documentation to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'docs/**' ]
+  pull_request:
+    branches: [ main ]
+    paths: [ 'docs/**' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HUGO_VERSION: 0.149.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: ${{ env.HUGO_VERSION }}
+          extended: true
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v4
+
+      - name: Install Node.js dependencies
+        run: "[[ -f package-lock.json || -f npm-shrinkwrap.json ]] && npm ci || true"
+        working-directory: docs
+
+      - name: Build with Hugo
+        env:
+          HUGO_ENVIRONMENT: production
+          HUGO_ENV: production
+        run: |
+          echo "📦 Building Hugo site with debug info..."
+          echo "📁 Current directory: $(pwd)"
+          echo "📊 Hugo version: $(hugo version)"
+          echo "📋 Theme: $(grep 'theme:' config.yaml || echo 'No theme specified')"
+          
+          # Resolve base URL from Pages output with safe fallback
+          BASE_URL="${{ steps.pages.outputs.base_url }}"
+          if [ -z "$BASE_URL" ]; then
+            # Fallback to repository Pages URL (project pages)
+            BASE_URL="https://prof-ramos.github.io/DiscordGPT"
+          fi
+          echo "🔗 Base URL: $BASE_URL"
+          
+          # Ensure BASE_URL ends with a slash
+          if [[ "$BASE_URL" != */ ]]; then
+            BASE_URL="${BASE_URL}/"
+          fi
+          echo "🔗 Formatted Base URL: $BASE_URL"
+          
+          # Build with verbose output for debugging
+          # Use the explicit 'build' subcommand to avoid any ambiguity
+          echo "🔧 Executing command: hugo build --gc --minify --baseURL '$BASE_URL'"
+          
+          # Execute the command with explicit build subcommand
+          hugo build --gc --minify --baseURL "$BASE_URL" 2>&1 | tee hugo-build.log
+          
+          # Check build status and show errors if any
+          if [ $? -eq 0 ]; then
+            echo "✅ Hugo build completed successfully!"
+            echo "📁 Output directory: docs/public/"
+            echo "📊 Files generated: $(find docs/public/ -type f | wc -l)"
+          else
+            echo "❌ Hugo build failed!"
+            echo "📋 Last 20 lines of build log:"
+            tail -20 hugo-build.log
+            exit 1
+          fi
+        working-directory: docs
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/public
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

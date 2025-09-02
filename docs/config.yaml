@@ -1,0 +1,61 @@
+baseURL: 'https://prof-ramos.github.io/DiscordGPT'
+languageCode: 'pt-br'
+title: 'Discord ChatGPT Bot - Documentação'
+theme: 'PaperMod'
+
+# Hugo Configuration
+enableRobotsTXT: true
+enableGitInfo: true
+enableEmoji: true
+
+# Markup Configuration
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+  highlight:
+    style: github
+    lineNos: true
+    codeFences: true
+    guessSyntax: true
+
+# Menu Configuration
+menu:
+  main:
+    - name: "Início"
+      url: "/"
+      weight: 10
+    - name: "Começar"
+      url: "/getting-started/"
+      weight: 20
+    - name: "Configuração"
+      url: "/configuration/"
+      weight: 30
+    - name: "Funcionalidades"
+      url: "/features/"
+      weight: 40
+    - name: "API"
+      url: "/api/"
+      weight: 50
+    - name: "Deploy"
+      url: "/deployment/"
+      weight: 60
+    - name: "Desenvolvimento"
+      url: "/development/"
+      weight: 70
+
+
+
+# Build
+build:
+  publishDir: 'public'
+  
+# Output formats
+outputs:
+  home: ["HTML", "RSS", "JSON"]
+  section: ["HTML", "RSS"]
+
+# Security
+security:
+  funcs:
+    getenv: ["^HUGO_", "^WC_"]

@@ -1,0 +1,19 @@
+{{- /* Feature item used inside blocks/section */ -}}
+{{- $icon := .Get "icon" | default "" -}}
+{{- $title := .Get "title" | default "" -}}
+{{- $url := .Get "url" | default "" -}}
+
+<div class="block-feature">
+  {{- if $icon }}<i class="block-feature__icon {{ $icon }}" aria-hidden="true"></i>{{ end -}}
+  {{- if $title }}
+    {{- if $url }}
+      <h3 class="block-feature__title"><a href="{{ $url }}">{{ $title }}</a></h3>
+    {{- else }}
+      <h3 class="block-feature__title">{{ $title }}</h3>
+    {{- end -}}
+  {{- end -}}
+  <div class="block-feature__content">
+    {{- .Inner -}}
+  </div>
+</div>
+

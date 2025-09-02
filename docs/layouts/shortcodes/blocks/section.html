@@ -1,0 +1,9 @@
+{{- /* Generic section block with optional color and layout type */ -}}
+{{- $color := .Get "color" | default "white" -}}
+{{- $type := .Get "type" | default "stack" -}}
+<section class="block-section block-section--{{ $color }} block-section--{{ $type }}">
+  <div class="block-section__inner">
+    {{- .Inner -}}
+  </div>
+</section>
+

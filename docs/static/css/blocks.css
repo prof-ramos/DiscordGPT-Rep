@@ -1,0 +1,22 @@
+/* Cover */
+.block-cover { padding: 2rem 0; margin-bottom: 1.5rem; }
+.block-cover__title { margin: 0 0 0.75rem 0; font-size: 2rem; }
+.block-cover--primary { background: var(--entry, #f3f4f6); }
+
+/* Lead */
+.block-lead { padding: 1rem 0; margin: 0.5rem 0 1rem; }
+.block-lead--white { background: transparent; }
+
+/* Section */
+.block-section { padding: 1rem 0; margin: 0.5rem 0 1rem; }
+.block-section--row .block-section__inner { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 1rem; }
+
+/* Feature */
+.block-feature { padding: 0.75rem; border: 1px solid var(--border, #e5e7eb); border-radius: 0.5rem; }
+.block-feature__title { margin: 0 0 0.25rem 0; font-size: 1.1rem; }
+.block-feature__icon { margin-right: 0.5rem; }
+
+/* Link down */
+.block-linkdown { text-align: center; margin-top: 0.75rem; }
+.block-linkdown__btn { text-decoration: none; font-size: 1.5rem; }
+

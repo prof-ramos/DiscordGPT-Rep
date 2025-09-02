@@ -1,0 +1,49 @@
+2025-09-02 11:13:38 INFO     src.log -> Personas module loaded with 7 public and 2 restricted personas
+2025-09-02 11:13:40 INFO     src.log -> Starting Discord AI Bot...
+INFO:src.log:Starting Discord AI Bot...
+2025-09-02 11:13:40 INFO     src.log -> Available providers: OpenAI, Claude, Gemini, Grok, Free (always available)
+INFO:src.log:Available providers: OpenAI, Claude, Gemini, Grok, Free (always available)
+2025-09-02 11:13:40 INFO     src.log -> ✅ Environment validation passed
+INFO:src.log:✅ Environment validation passed
+2025-09-02 11:13:40 INFO     src.log -> Free provider configured - no authentication required
+INFO:src.log:Free provider configured - no authentication required
+2025-09-02 11:13:40 INFO     src.log -> Available providers: ['Free', 'OpenAI', 'Claude', 'Gemini', 'Grok']
+INFO:src.log:Available providers: ['Free', 'OpenAI', 'Claude', 'Gemini', 'Grok']
+2025-09-02 11:13:40 INFO     src.log -> Provider manager initialized with Free
+INFO:src.log:Provider manager initialized with Free
+2025-09-02 11:13:40 INFO     src.log -> Discord client initialized
+INFO:src.log:Discord client initialized
+
+╔════════════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                        ║
+║   ██████╗██╗  ██╗ █████╗ ████████╗ ██████╗ ██████╗ ████████╗    ██████╗  ██████╗ ████████╗   ║
+║  ██╔════╝██║  ██║██╔══██╗╚══██╔══╝██╔════╝ ██╔══██╗╚══██╔══╝    ██╔══██╗██╔═══██╗╚══██╔══╝   ║
+║  ██║     ███████║███████║   ██║   ██║  ███╗██████╔╝   ██║       ██████╔╝██║   ██║   ██║      ║
+║  ██║     ██╔══██║██╔══██║   ██║   ██║   ██║██╔═══╝    ██║       ██╔══██╗██║   ██║   ██║      ║
+║  ╚██████╗██║  ██║██║  ██║   ██║   ╚██████╔╝██║        ██║       ██████╔╝╚██████╔╝   ██║      ║
+║   ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝        ╚═╝       ╚═════╝  ╚═════╝    ╚═╝      ║
+║                                                                                        ║
+║             Desenvolvido por Prof. Ramos • GitHub: prof-ramos/DiscordGPT              ║
+╚════════════════════════════════════════════════════════════════════════════════════════╝
+    
+2025-09-02 11:13:40 INFO     src.log -> Starting Discord bot...
+INFO:src.log:Starting Discord bot...
+2025-09-02 11:13:40 ERROR    src.log -> Failed to start Discord bot: 'DiscordClient' object has no attribute 'tree'
+ERROR:src.log:Failed to start Discord bot: 'DiscordClient' object has no attribute 'tree'
+2025-09-02 11:13:40 ERROR    src.log -> ❌ Bot crashed: 'DiscordClient' object has no attribute 'tree'
+ERROR:src.log:❌ Bot crashed: 'DiscordClient' object has no attribute 'tree'
+2025-09-02 11:13:40 ERROR    src.log -> Check your Discord token and bot permissions
+ERROR:src.log:Check your Discord token and bot permissions
+Traceback (most recent call last):
+  File "/home/runner/workspace/main.py", line 66, in <module>
+    main()
+  File "/home/runner/workspace/main.py", line 57, in main
+    run_discord_bot()
+  File "/home/runner/workspace/src/bot.py", line 23, in run_discord_bot
+    client.run_bot()
+  File "/home/runner/workspace/src/aclient.py", line 145, in run_bot
+    self.setup_commands()
+  File "/home/runner/workspace/src/aclient.py", line 160, in setup_commands
+    @self.tree.command(name="chat", description="Conversar com IA")
+     ^^^^^^^^^
+AttributeError: 'DiscordClient' object has no attribute 'tree'

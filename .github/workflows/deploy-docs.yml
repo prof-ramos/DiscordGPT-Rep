@@ -1,0 +1,66 @@
+name: Deploy Hugo Documentation to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: '0.149.0'
+          extended: true
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install Node.js dependencies (optional for themes/pipelines)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+        # run: npm ci
+
+      - name: Build with Hugo (inside docs/)
+        working-directory: docs
+        run: |
+          hugo build --gc --minify --baseURL "https://prof-ramos.github.io/DiscordGPT/"
+
+      - name: Upload artifact (docs/public)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/public
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

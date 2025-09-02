@@ -1,0 +1,12 @@
+{{- $title := .Get "title" | default "" -}}
+{{- $color := .Get "color" | default "info" | lower -}}
+
+<div class="alert alert--{{ $color }}">
+  {{- if $title -}}
+  <div class="alert-title">{{ $title }}</div>
+  {{- end -}}
+  <div class="alert-body">
+    {{- .Inner -}}
+  </div>
+  </div>
+

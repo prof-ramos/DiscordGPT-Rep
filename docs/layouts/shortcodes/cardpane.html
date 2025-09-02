@@ -1,0 +1,11 @@
+{{- /* Cardpane container - collects child cards on Page scratch, then renders */ -}}
+{{- $id := now.UnixNano -}}
+{{- $key := printf "cards-%d" $id -}}
+{{- .Page.Scratch.Set $key (slice) -}}
+{{- .Page.Scratch.Set "currentCardsKey" $key -}}
+{{- .Inner -}}
+{{- $cards := .Page.Scratch.Get $key | default (slice) -}}
+
+<div class="card-pane grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+  {{- .Inner -}}
+</div>

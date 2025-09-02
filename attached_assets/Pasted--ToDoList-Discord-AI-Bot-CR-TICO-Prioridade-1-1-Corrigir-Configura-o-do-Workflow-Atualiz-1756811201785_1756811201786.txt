@@ -1,0 +1,73 @@
+📝 ToDoList - Discord AI Bot
+🚨 CRÍTICO - Prioridade 1
+1. Corrigir Configuração do Workflow
+ Atualizar workflow para executar python main.py em vez de streamlit run main.py
+ O main.py atual é para o bot Discord, não para Streamlit
+2. Implementações Faltantes
+ Completar src/aclient.py - Cliente Discord principal está ausente
+ Completar src/providers.py - Gerenciador de provedores de IA
+ Completar src/personas.py - Sistema de personalidades
+ Verificar imports - Alguns módulos podem estar faltando
+3. Variáveis de Ambiente
+ Criar arquivo .env baseado no .env.example
+ Configurar DISCORD_BOT_TOKEN obrigatório
+ Validar formato do token Discord
+⚠️ ALTO - Prioridade 2
+4. Correções no Sistema de Log
+ Corrigir construção de path em src/log.py linha 67
+ Adicionar validação de diretório /tmp
+ Implementar fallback para sistemas sem /tmp
+ Prevenir criação de múltiplos loggers para o mesmo módulo
+5. Painel Administrativo
+ Completar admin_panel.py - Arquivo parece incompleto
+ Adicionar imports faltantes do Streamlit
+ Implementar lógica de salvamento de configuração
+ Corrigir referências a classes não implementadas
+6. Tratamento de Erros
+ Adicionar try/catch em main.py para melhor error handling
+ Implementar validação de formato do token Discord
+ Adicionar validação de permissões do bot
+📋 MÉDIO - Prioridade 3
+7. Validação de Entrada
+ Implementar sanitização mais robusta de inputs
+ Adicionar validação de caracteres especiais
+ Implementar rate limiting por usuário
+8. Melhorias de Segurança
+ Validar IDs de usuário Discord
+ Implementar logs de auditoria para personas jailbreak
+ Adicionar timeout para operações de IA
+9. Performance
+ Implementar sistema de cache para conversas
+ Otimizar queue de mensagens
+ Adicionar métricas de performance
+🔧 BAIXO - Prioridade 4
+10. Documentação
+ Completar comentários no código
+ Atualizar README com instruções específicas do Replit
+ Adicionar exemplos de uso
+11. Testes
+ Implementar testes unitários faltantes
+ Adicionar testes de integração
+ Testes de validação de ambiente
+12. Features Adicionais
+ Sistema de backup automático
+ Monitoramento de recursos
+ Dashboard de métricas em tempo real
+📊 ARQUIVOS QUE PRECISAM SER CRIADOS/COMPLETADOS
+Arquivos Críticos Faltantes:
+src/aclient.py - Cliente Discord principal
+src/providers.py - Gerenciamento de provedores de IA
+src/personas.py - Sistema de personalidades
+.env - Variáveis de ambiente
+Arquivos para Correção:
+src/log.py - Corrigir path handling
+admin_panel.py - Completar implementação
+main.py - Melhorar error handling
+🔄 ORDEM DE EXECUÇÃO RECOMENDADA
+Primeiro: Corrigir workflow (python main.py)
+Segundo: Criar arquivo .env com DISCORD_BOT_TOKEN
+Terceiro: Implementar src/aclient.py básico
+Quarto: Implementar src/providers.py e src/personas.py
+Quinto: Testar bot básico
+Sexto: Completar painel administrativo
+Sétimo: Implementar melhorias e testes
