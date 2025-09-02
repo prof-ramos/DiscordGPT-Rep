@@ -1,7 +1,5 @@
-
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
-import os
 
 from src.bot import run_discord_bot
 
