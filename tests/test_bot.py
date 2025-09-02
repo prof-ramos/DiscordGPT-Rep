@@ -1,7 +1,5 @@
-
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
-import os
 
 from src.bot import run_discord_bot
 
@@ -37,5 +35,7 @@ class TestBotModule:
         mock_instance.run_bot.side_effect = Exception("Connection failed")
         mock_client.return_value = mock_instance
         
+        with pytest.raises(Exception, match="Connection failed"):
+            run_discord_bot()
         with pytest.raises(Exception, match="Connection failed"):
             run_discord_bot()
