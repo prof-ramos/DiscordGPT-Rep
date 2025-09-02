@@ -1,0 +1,558 @@
+---
+globs: src/*.py,*.py
+description: Discord.py best practices and patterns
+---
+
+# Discord.py Best Practices
+
+## Bot Initialization & Configuration
+
+### Intents Configuration
+Always configure intents properly based on bot requirements:
+```python
+# ✅ GOOD - Minimal required intents
+intents = discord.Intents.default()
+intents.message_content = True  # Required for reading message content
+intents.guilds = True          # Required for guild-related events
+intents.members = True         # Required for member-related events (privileged)
+
+# ❌ BAD - Don't use all intents unless necessary
+# intents = discord.Intents.all()  # Avoid unless absolutely required
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+```
+
+### Command Prefix Strategy
+```python
+# ✅ GOOD - Use mention prefix for modern bots
+bot = commands.Bot(command_prefix=commands.when_mentioned_or('!'), intents=intents)
+
+# ✅ Alternative - Use slash commands (recommended)
+# Use @bot.tree.command() instead of traditional prefixes
+```
+
+## Event Handling
+
+### Proper Event Registration
+```python
+class MyBot(commands.Bot):
+    async def setup_hook(self):
+        """Called before the bot connects to Discord"""
+        # Register event listeners here
+        pass
+
+    async def on_ready(self):
+        """Called when bot is fully connected"""
+        logger.info(f"✅ Bot connected as: {self.user}")
+        # Set status, activity, etc.
+        await self.change_presence(
+            status=discord.Status.online,
+            activity=discord.Activity(
+                type=discord.ActivityType.listening,
+                name="/chat para conversar"
+            )
+        )
+
+    async def on_message(self, message):
+        """Handle incoming messages"""
+        # Ignore bot messages
+        if message.author == self.user:
+            return
+
+        # Process message
+        await self.process_message(message)
+```
+
+### Error Handling in Events
+```python
+async def on_command_error(self, ctx, error):
+    """Global command error handler"""
+    if isinstance(error, commands.CommandNotFound):
+        return  # Ignore unknown commands
+
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Você não tem permissão para usar este comando.")
+
+    elif isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(f"⏰ Comando em cooldown. Tente novamente em {error.retry_after:.1f}s.")
+
+    else:
+        logger.error(f"Command error: {error}")
+        await ctx.send("❌ Ocorreu um erro ao executar o comando.")
+```
+
+## Command Structure
+
+### Slash Commands (Modern Approach)
+```python
+@bot.tree.command(name="chat", description="Conversar com IA")
+@app_commands.describe(mensagem="Digite sua mensagem")
+async def chat_command(interaction: discord.Interaction, mensagem: str):
+    """Modern slash command with proper typing"""
+    await interaction.response.defer(thinking=True)
+
+    try:
+        response = await bot.process_message(mensagem, interaction.user.id)
+        await interaction.followup.send(response[:2000])
+
+    except Exception as e:
+        logger.error(f"Chat command error: {e}")
+        await interaction.followup.send("❌ Erro ao processar mensagem.")
+```
+
+### Traditional Commands (Legacy)
+```python
+@bot.command(name="ping")
+async def ping(ctx):
+    """Simple ping command with proper context"""
+    latency = round(bot.latency * 1000)
+    await ctx.send(f"🏓 Pong! Latência: {latency}ms")
+
+@bot.command(name="info")
+@commands.has_permissions(administrator=True)
+async def info(ctx):
+    """Command with permission requirements"""
+    embed = discord.Embed(title="🤖 Bot Info", color=discord.Color.blue())
+    embed.add_field(name="Status", value="✅ Online", inline=True)
+    embed.add_field(name="Latência", value=f"{round(bot.latency * 1000)}ms", inline=True)
+    await ctx.send(embed=embed)
+```
+
+## Rate Limiting & Cooldowns
+
+### Command Cooldowns
+```python
+@bot.command(name="expensive")
+@commands.cooldown(1, 30, commands.BucketType.user)  # 1 use per 30 seconds per user
+async def expensive_command(ctx):
+    """Command with rate limiting"""
+    # Expensive operation here
+    await ctx.send("✅ Operação concluída!")
+```
+
+### API Rate Limiting
+```python
+import asyncio
+from collections import defaultdict
+
+class RateLimiter:
+    """Simple rate limiter for API calls"""
+
+    def __init__(self):
+        self.requests = defaultdict(list)
+        self.max_requests = 10  # requests
+        self.time_window = 60   # seconds
+
+    async def check_limit(self, user_id: int) -> bool:
+        """Check if user is within rate limits"""
+        now = asyncio.get_event_loop().time()
+        user_requests = self.requests[user_id]
+
+        # Remove old requests outside time window
+        user_requests[:] = [req for req in user_requests if now - req < self.time_window]
+
+        if len(user_requests) >= self.max_requests:
+            return False
+
+        user_requests.append(now)
+        return True
+
+# Usage
+rate_limiter = RateLimiter()
+
+async def handle_message(self, message):
+    if not await rate_limiter.check_limit(message.author.id):
+        await message.channel.send("⏰ Muitas solicitações! Tente novamente em alguns minutos.")
+        return
+
+    # Process message normally
+```
+
+## Error Handling & Resilience
+
+### Connection Handling
+```python
+async def on_disconnect(self):
+    """Handle disconnection events"""
+    logger.warning("🔌 Bot desconectado do Discord")
+
+async def on_resumed(self):
+    """Handle reconnection events"""
+    logger.info("🔄 Conexão com Discord restaurada")
+
+async def on_error(self, event, *args, **kwargs):
+    """Global error handler"""
+    logger.error(f"Erro não tratado no evento {event}: {args} {kwargs}")
+```
+
+### Graceful Shutdown
+```python
+import signal
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    logger.info("🛑 Recebido sinal de shutdown, encerrando bot...")
+    asyncio.create_task(bot.close())
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+```
+
+## Message Handling
+
+### Message Splitting
+```python
+async def send_long_message(channel, content: str, max_length: int = 2000):
+    """Send long messages by splitting them"""
+    if len(content) <= max_length:
+        await channel.send(content)
+        return
+
+    # Split message intelligently
+    parts = []
+    current_part = ""
+
+    for line in content.split('\n'):
+        if len(current_part + line) > max_length - 10:  # Leave room for formatting
+            if current_part:
+                parts.append(current_part.strip())
+                current_part = line
+            else:
+                # Line too long, force split
+                parts.append(line[:max_length-10] + "...")
+                current_part = "..." + line[max_length-10:]
+        else:
+            current_part += '\n' + line if current_part else line
+
+    if current_part:
+        parts.append(current_part.strip())
+
+    # Send all parts
+    for i, part in enumerate(parts):
+        if len(parts) > 1:
+            await channel.send(f"**Parte {i+1}/{len(parts)}:**\n{part}")
+        else:
+            await channel.send(part)
+```
+
+### Mention Handling
+```python
+def clean_mentions(content: str, message) -> str:
+    """Clean and validate mentions in message content"""
+    # Remove @everyone and @here mentions for security
+    content = content.replace("@everyone", "@\u200beveryone")
+    content = content.replace("@here", "@\u200bhere")
+
+    # Handle user mentions properly
+    for mention in message.mentions:
+        # Validate mention is appropriate
+        if mention.bot:  # Don't process bot mentions
+            continue
+
+    return content
+
+async def process_message(self, message):
+    """Process incoming messages with proper validation"""
+    content = clean_mentions(message.content, message)
+
+    # Additional validation
+    if len(content) > 4000:  # Discord's max message length
+        await message.channel.send("❌ Mensagem muito longa!")
+        return
+
+    # Process content
+    response = await self.generate_response(content)
+    await send_long_message(message.channel, response)
+```
+
+## Configuration Management
+
+### Environment Variables
+```python
+import os
+from typing import Optional
+
+class BotConfig:
+    """Centralized configuration management"""
+
+    def __init__(self):
+        self.token = self._get_required_env("DISCORD_BOT_TOKEN")
+        self.max_message_length = int(os.getenv("MAX_MESSAGE_LENGTH", "2000"))
+        self.conversation_limit = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "20"))
+        self.admin_user_ids = self._parse_admin_ids()
+
+    def _get_required_env(self, key: str) -> str:
+        """Get required environment variable"""
+        value = os.getenv(key)
+        if not value:
+            raise ValueError(f"Required environment variable {key} is not set")
+        return value
+
+    def _parse_admin_ids(self) -> list:
+        """Parse admin user IDs from environment"""
+        admin_ids_str = os.getenv("ADMIN_USER_IDS", "")
+        if not admin_ids_str:
+            return []
+
+        try:
+            return [int(uid.strip()) for uid in admin_ids_str.split(",") if uid.strip()]
+        except ValueError as e:
+            logger.error(f"Invalid admin user IDs: {e}")
+            return []
+
+    def is_admin(self, user_id: int) -> bool:
+        """Check if user is admin"""
+        return user_id in self.admin_user_ids
+
+# Usage
+config = BotConfig()
+bot = MyBot(config=config)
+```
+
+## Logging Best Practices
+
+### Structured Logging
+```python
+import logging
+from typing import Any, Dict
+
+class DiscordLogger:
+    """Structured logging for Discord bot events"""
+
+    def __init__(self):
+        self.logger = logging.getLogger("discord_bot")
+        self.logger.setLevel(logging.INFO)
+
+        # Create console handler
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+
+        self.logger.addHandler(handler)
+
+    def log_command(self, user: str, command: str, **kwargs):
+        """Log command usage"""
+        self.logger.info(f"Command used: {command} by {user}", extra={
+            "user": user,
+            "command": command,
+            **kwargs
+        })
+
+    def log_error(self, error: Exception, context: str = "", **kwargs):
+        """Log errors with context"""
+        self.logger.error(f"Error in {context}: {error}", extra={
+            "error_type": type(error).__name__,
+            "context": context,
+            **kwargs
+        }, exc_info=True)
+
+# Usage
+logger = DiscordLogger()
+
+@bot.command()
+async def test(ctx):
+    """Test command with logging"""
+    logger.log_command(str(ctx.author), "test", channel=str(ctx.channel))
+
+    try:
+        # Command logic
+        await ctx.send("✅ Test successful!")
+        logger.log_command(str(ctx.author), "test", result="success")
+
+    except Exception as e:
+        logger.log_error(e, "test_command", user=str(ctx.author))
+        await ctx.send("❌ Test failed!")
+```
+
+## Performance Optimization
+
+### Connection Pooling
+```python
+import aiohttp
+
+class HTTPClient:
+    """Reusable HTTP client with connection pooling"""
+
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def get_session(self) -> aiohttp.ClientSession:
+        """Get or create HTTP session"""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30),
+                connector=aiohttp.TCPConnector(limit=100, ttl_dns_cache=30)
+            )
+        return self.session
+
+    async def close(self):
+        """Close HTTP session"""
+        if self.session and not self.session.closed:
+            await self.session.close()
+
+# Usage in bot
+http_client = HTTPClient()
+
+async def fetch_data(self, url: str) -> dict:
+    """Fetch data with connection reuse"""
+    session = await http_client.get_session()
+
+    async with session.get(url) as response:
+        return await response.json()
+
+# Cleanup on shutdown
+async def on_close(self):
+    """Cleanup resources"""
+    await http_client.close()
+```
+
+### Caching Strategy
+```python
+from functools import lru_cache
+import asyncio
+from typing import Dict, Any
+import time
+
+class Cache:
+    """Simple time-based cache"""
+
+    def __init__(self, ttl_seconds: int = 300):
+        self.cache: Dict[str, Dict[str, Any]] = {}
+        self.ttl = ttl_seconds
+
+    def get(self, key: str) -> Any:
+        """Get cached value if not expired"""
+        if key in self.cache:
+            item = self.cache[key]
+            if time.time() - item['timestamp'] < self.ttl:
+                return item['value']
+
+            # Remove expired item
+            del self.cache[key]
+
+        return None
+
+    def set(self, key: str, value: Any):
+        """Set cache value with timestamp"""
+        self.cache[key] = {
+            'value': value,
+            'timestamp': time.time()
+        }
+
+    def clear(self):
+        """Clear all cached values"""
+        self.cache.clear()
+
+# Usage
+response_cache = Cache(ttl_seconds=600)  # 10 minutes
+
+@lru_cache(maxsize=100)
+def process_expensive_operation(query: str) -> str:
+    """Cache expensive operations"""
+    # Check cache first
+    cached = response_cache.get(query)
+    if cached:
+        return cached
+
+    # Compute result
+    result = expensive_computation(query)
+
+    # Cache result
+    response_cache.set(query, result)
+
+    return result
+```
+
+## Testing Patterns for Discord Bots
+
+### Mocking Discord Objects
+```python
+import pytest
+from unittest.mock import Mock, AsyncMock
+import discord
+
+@pytest.fixture
+def mock_user():
+    """Create mock Discord user"""
+    user = Mock(spec=discord.User)
+    user.id = 123456789
+    user.name = "TestUser"
+    user.discriminator = "1234"
+    user.bot = False
+    return user
+
+@pytest.fixture
+def mock_channel():
+    """Create mock Discord channel"""
+    channel = Mock(spec=discord.TextChannel)
+    channel.id = 987654321
+    channel.name = "test-channel"
+    channel.send = AsyncMock()
+    return channel
+
+@pytest.fixture
+def mock_message(mock_user, mock_channel):
+    """Create mock Discord message"""
+    message = Mock(spec=discord.Message)
+    message.id = 111222333
+    message.content = "Hello bot!"
+    message.author = mock_user
+    message.channel = mock_channel
+    message.guild = None  # DM
+    return message
+
+@pytest.fixture
+def mock_interaction(mock_user):
+    """Create mock Discord interaction"""
+    interaction = Mock(spec=discord.Interaction)
+    interaction.user = mock_user
+    interaction.response = Mock()
+    interaction.response.defer = AsyncMock()
+    interaction.followup = Mock()
+    interaction.followup.send = AsyncMock()
+    return interaction
+```
+
+### Testing Async Commands
+```python
+@pytest.mark.asyncio
+async def test_chat_command(mock_interaction):
+    """Test chat slash command"""
+    from src.aclient import DiscordClient
+
+    bot = DiscordClient()
+
+    # Mock the message processing
+    bot.handle_message = AsyncMock(return_value="Bot response")
+
+    # Call the command
+    await bot.chat_command(mock_interaction, "Hello")
+
+    # Verify interactions
+    mock_interaction.response.defer.assert_called_once()
+    mock_interaction.followup.send.assert_called_once_with("Bot response")
+
+@pytest.mark.asyncio
+async def test_chat_command_error(mock_interaction):
+    """Test error handling in chat command"""
+    from src.aclient import DiscordClient
+
+    bot = DiscordClient()
+
+    # Mock error in message processing
+    bot.handle_message = AsyncMock(side_effect=Exception("API Error"))
+
+    # Call the command
+    await bot.chat_command(mock_interaction, "Hello")
+
+    # Verify error handling
+    mock_interaction.followup.send.assert_called_once()
+    error_message = mock_interaction.followup.send.call_args[0][0]
+    assert "❌ Erro" in error_message
+```
