@@ -37,5 +37,3 @@ class TestBotModule:
         
         with pytest.raises(Exception, match="Connection failed"):
             run_discord_bot()
-        with pytest.raises(Exception, match="Connection failed"):
-            run_discord_bot()
