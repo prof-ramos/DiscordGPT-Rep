@@ -1,0 +1,97 @@
+---
+globs: tests/*.py,test_*.py
+description: Testing guidelines and pytest conventions
+---
+
+# Testing Guidelines
+
+## Test Framework & Structure
+- **Framework**: `pytest` with `pytest-asyncio` (asyncio_mode=auto)
+- **File naming**: `tests/test_*.py` (e.g., [`tests/test_bot.py`](mdc:tests/test_bot.py))
+- **Class naming**: `Test*` (e.g., `TestDiscordBot`, `TestProviders`)
+- **Function naming**: `test_*` (e.g., `test_message_processing`, `test_provider_initialization`)
+
+## Test Categories & Markers
+```python
+import pytest
+
+# Unit tests - fast, isolated, no external dependencies
+@pytest.mark.unit
+def test_parse_message():
+    pass
+
+# Integration tests - test component interactions
+@pytest.mark.integration
+async def test_discord_connection():
+    pass
+
+# Slow tests - external API calls, heavy computations
+@pytest.mark.slow
+def test_large_dataset_processing():
+    pass
+```
+
+## Running Tests
+```bash
+# All tests
+pytest -v
+
+# Unit tests only (fast)
+pytest -m "unit and not slow"
+
+# Integration tests
+pytest -m integration
+
+# Specific test file
+pytest tests/test_bot.py
+
+# With coverage
+pytest --cov=src --cov-report=html
+```
+
+## Test Organization
+- **Arrange-Act-Assert** pattern for test structure
+- Use descriptive test names that explain the scenario
+- Group related tests in classes when beneficial
+- Use fixtures for common setup/teardown
+
+## Async Testing
+```python
+import pytest_asyncio
+
+@pytest.mark.asyncio
+async def test_async_function():
+    # Test async bot methods
+    result = await bot.process_message(message)
+    assert result is not None
+
+# For fixtures that need async setup
+@pytest_asyncio.fixture
+async def discord_client():
+    client = discord.Client()
+    await client.login(token)
+    yield client
+    await client.close()
+```
+
+## Mocking & Fixtures
+- Use `unittest.mock` or `pytest-mock` for external dependencies
+- Mock LLM API calls to avoid rate limits and ensure determinism
+- Create reusable fixtures in [`tests/conftest.py`](mdc:tests/conftest.py)
+
+## Best Practices
+- **Fast & Deterministic**: Tests should be reliable and quick
+- **Isolated**: No test should depend on others
+- **Descriptive**: Clear names and assertions with helpful error messages
+- **Complete Coverage**: Test happy paths, edge cases, and error conditions
+- **DRY Principle**: Extract common test logic into fixtures/helpers
+
+## Test Data Management
+- Use realistic but minimal test data
+- Avoid hardcoded secrets in tests (use environment variables)
+- Clean up test artifacts (files, database entries) in teardown
+
+## CI/CD Integration
+- Tests run automatically on push/PR
+- Mark flaky tests appropriately (don't break CI)
+- Monitor test performance and fix slow tests

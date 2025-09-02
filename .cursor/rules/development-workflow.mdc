@@ -1,0 +1,189 @@
+---
+alwaysApply: true
+description: Development workflow, commands, and contribution guidelines
+---
+
+# Development Workflow & Commands
+
+## Getting Started
+### Initial Setup
+```bash
+# Clone and setup
+git clone <repository-url>
+cd DiscordGPT-Rep
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy environment configuration
+cp .env.example .env
+# Edit .env with your API keys
+```
+
+### Running the Bot
+```bash
+# Start Discord bot
+python main.py
+
+# Start admin panel (http://localhost:8501)
+python start_admin.py
+
+# Both services simultaneously
+# Terminal 1: python main.py
+# Terminal 2: python start_admin.py
+```
+
+## Docker Development
+### Container Commands
+```bash
+# Start development environment
+docker compose up -d
+
+# View logs
+docker logs -t chatgpt-discord-bot
+
+# Stop containers
+docker compose down
+
+# Rebuild after changes
+docker compose up --build
+```
+
+## Testing Workflow
+### Test Execution
+```bash
+# Run all tests
+pytest -v
+
+# Run unit tests only (fast)
+pytest -m "unit and not slow"
+
+# Run integration tests
+pytest -m integration
+
+# Run specific test file
+pytest tests/test_bot.py -v
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+```
+
+### Test Categories
+- **Unit tests**: Fast, isolated tests (`@pytest.mark.unit`)
+- **Integration tests**: Component interaction tests (`@pytest.mark.integration`)
+- **Slow tests**: External API calls, heavy processing (`@pytest.mark.slow`)
+
+## Commit Guidelines
+### Commit Message Format
+```
+type(scope): description
+
+# Examples:
+feat(bot): add message threading support
+fix(providers): handle OpenAI rate limit errors
+docs(readme): update installation instructions
+test(personas): add tests for persona loading
+refactor(log): simplify logging configuration
+```
+
+### Best Practices
+- Use present tense ("add feature" not "added feature")
+- Keep commits focused and atomic
+- Reference issues when applicable (`Closes #123`)
+- Test before committing
+
+## Pull Request Guidelines
+### PR Requirements
+- **Purpose/Summary**: Clear description of changes
+- **Linked Issues**: Reference related issues (`Closes #123`)
+- **Testing**: Include tests for new logic
+- **Documentation**: Update docs for behavior changes
+- **Screenshots/Logs**: For UX-facing changes
+
+### PR Checklist
+- [ ] Code follows project style guidelines
+- [ ] Tests added/updated for new functionality
+- [ ] Documentation updated if needed
+- [ ] Breaking changes clearly documented
+- [ ] CI/CD checks pass
+- [ ] Reviewed by at least one maintainer
+
+## Code Quality Checks
+### Pre-commit Quality Assurance
+```bash
+# Run linting (if configured)
+pre-commit run --all-files
+
+# Format code with Black
+black src/ tests/
+
+# Sort imports with isort
+isort src/ tests/
+
+# Type checking with mypy
+mypy src/
+```
+
+### Manual Quality Checks
+- Review code for security vulnerabilities
+- Check for proper error handling
+- Verify logging is appropriate
+- Ensure tests cover edge cases
+
+## Debugging & Troubleshooting
+### Common Issues
+```bash
+# Check Discord bot status
+python -c "import discord; print('Discord.py version:', discord.__version__)"
+
+# Validate configuration
+python -c "from src.config import validate_config; validate_config()"
+
+# Test LLM provider connectivity
+python -c "from src.providers import test_providers; test_providers()"
+```
+
+### Logging Levels
+```python
+# In code for debugging
+logger.debug("Detailed information for troubleshooting")
+logger.info("General information about bot operation")
+logger.warning("Warning about potential issues")
+logger.error("Error that doesn't stop execution")
+logger.critical("Critical error requiring immediate attention")
+```
+
+## Performance Monitoring
+### Profiling Commands
+```bash
+# Profile bot performance
+python -m cProfile -s time main.py
+
+# Memory usage analysis
+python -m memory_profiler main.py
+
+# Check for slow tests
+pytest --durations=10
+```
+
+## Deployment Preparation
+### Pre-deployment Checklist
+- [ ] All tests pass
+- [ ] Dependencies updated in `requirements.txt`
+- [ ] Environment variables documented
+- [ ] Docker image builds successfully
+- [ ] Admin panel accessible
+- [ ] Logs configured appropriately
+- [ ] Security review completed
+
+### Production Deployment
+```bash
+# Build production image
+docker build -t discord-gpt-bot:latest .
+
+# Deploy with docker-compose
+docker compose -f docker-compose.prod.yml up -d
+
+# Health check
+curl http://localhost:8501/health
+```

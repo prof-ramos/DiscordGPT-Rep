@@ -4,7 +4,8 @@ from openai import AsyncOpenAI
 from g4f.client import AsyncClient
 from g4f.Provider import BingCreateImages, Gemini, OpenaiChat
 
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_KEY"))
+# Initialize OpenAI client only if key is available
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_KEY")) if os.getenv("OPENAI_KEY") else None
 
 def get_image_provider(provider_name: str):
     providers = {
