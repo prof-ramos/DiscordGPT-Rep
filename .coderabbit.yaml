@@ -1,27 +1,49 @@
-# .coderabbit.yaml
+# CodeRabbit Configuration for DiscordGPT-Rep
+# Complete reference: https://docs.coderabbit.ai/reference/configuration
 
 # =============================================================================
 # GLOBAL SETTINGS
 # =============================================================================
-language: "pt-BR"  # Define o idioma para revisões como português brasileiro
-tone_instructions: ""  # Pode personalizar o tom das revisões, se desejar
+
+# Set the language for reviews
+language: "pt-BR"
+
+# Enable early-access features
 early_access: false
+
+# Enable free tier features
 enable_free_tier: true
 
 # =============================================================================
 # REVIEWS
 # =============================================================================
+
 reviews:
-  profile: "chill"  # Perfil relaxado para revisões menos rigorosas
+  # Set the profile for reviews - assertive for thorough feedback
+  profile: "assertive"
+
+  # Request changes workflow
   request_changes_workflow: false
+
+  # Generate high level summary of changes
   high_level_summary: true
+
+  # Placeholder for high level summary
   high_level_summary_placeholder: "@coderabbitai summary"
-  high_level_summary_in_walkthrough: false
+
+  # Include summary in walkthrough
+  high_level_summary_in_walkthrough: true
+
+  # Auto title generation
   auto_title_placeholder: "@coderabbitai"
-  auto_title_instructions: ""
+  auto_title_instructions: "Generate concise, descriptive titles following conventional commits format (type(scope): description)"
+
+  # Review details and status
   review_status: true
   commit_status: true
-  fail_commit_status: false
+  fail_commit_status: true
+
+  # Walkthrough configuration
   collapse_walkthrough: false
   changed_files_summary: true
   sequence_diagrams: true
@@ -34,137 +56,129 @@ reviews:
   suggested_reviewers: true
   auto_assign_reviewers: false
   poem: true
-  labeling_instructions: []
-  path_filters: []
-  path_instructions: []
+
+  # Labeling instructions for DiscordGPT-Rep
+  labeling_instructions:
+    - "Use 'testing' for test-related changes"
+    - "Use 'documentation' for docs and README updates"
+    - "Use 'bug-fix' for error corrections"
+    - "Use 'enhancement' for new features"
+    - "Use 'discord' for Discord.py specific changes"
+    - "Use 'security' for security-related updates"
+
+  # Path filters for focused reviews
+  path_filters:
+    - "src/**"
+    - "tests/**"
+    - "*.py"
+    - "*.md"
+    - "*.yml"
+    - "*.yaml"
+    - "!__pycache__/**"
+    - "!.pytest_cache/**"
+    - "!venv/**"
+    - "!node_modules/**"
+
+  # Path-specific instructions
+  path_instructions:
+    - path: "src/**"
+      instructions: "Focus on Python code quality, Discord.py best practices, error handling, and security"
+    - path: "tests/**"
+      instructions: "Ensure tests follow pytest conventions, proper mocking, and cover edge cases"
+    - path: "*.md"
+      instructions: "Check for clear documentation, proper formatting, and accurate information"
+    - path: "requirements.txt"
+      instructions: "Verify dependency versions, security, and compatibility"
+
+  # Abort review on PR close
   abort_on_close: true
+
+  # Disable caching for fresh reviews
   disable_cache: false
+
+  # Auto review configuration
   auto_review:
     enabled: true
     auto_incremental_review: true
-    ignore_title_keywords: []
-    labels: []
+    ignore_title_keywords: ["wip", "draft", "work in progress"]
+    labels: ["!wip", "!draft"]
     drafts: false
-    base_branches: []
+    base_branches: ["main", "develop", "feature/*", "fix/*"]
     ignore_usernames: []
+
+  # Finishing touches
   finishing_touches:
     docstrings:
       enabled: true
     unit_tests:
       enabled: true
+
+  # Pre-merge checks
   pre_merge_checks:
     docstrings:
       mode: "warning"
-      threshold: 80
+      threshold: 70  # Lower threshold for existing codebase
     title:
       mode: "warning"
-      requirements: ""
+      requirements: "Title should follow conventional commits format: type(scope): description"
     description:
       mode: "warning"
     issue_assessment:
       mode: "warning"
+
+  # Tools configuration
   tools:
-    ast-grep:
-      rule_dirs: []
-      util_dirs: []
-      essential_rules: true
-      packages: []
-    shellcheck:
-      enabled: true
+    # Python-specific tools
     ruff:
       enabled: true
-    markdownlint:
-      enabled: true
-    github-checks:
-      enabled: true
-      timeout_ms: 90000
-    languagetool:
-      enabled: true
-      enabled_rules: []
-      disabled_rules: []
-      enabled_categories: []
-      disabled_categories: []
-      enabled_only: false
-      level: "default"
-    biome:
-      enabled: true
-    hadolint:
-      enabled: true
-    swiftlint:
-      enabled: true
-      config_file: ""
-    phpstan:
-      enabled: true
-      level: "default"
-    phpmd:
-      enabled: true
-    phpcs:
-      enabled: true
-    golangci-lint:
-      enabled: true
-      config_file: ""
-    yamllint:
-      enabled: true
-    gitleaks:
-      enabled: true
-    checkov:
-      enabled: true
-    detekt:
-      enabled: true
-      config_file: ""
-    eslint:
-      enabled: true
+    
     flake8:
       enabled: true
-    rubocop:
-      enabled: true
-    buf:
-      enabled: true
-    regal:
-      enabled: true
-    actionlint:
-      enabled: true
-    pmd:
-      enabled: true
-      config_file: ""
-    cppcheck:
-      enabled: true
-    semgrep:
-      enabled: true
-      config_file: ""
-    circleci:
-      enabled: true
-    clippy:
-      enabled: true
-    sqlfluff:
-      enabled: true
-    prismaLint:
-      enabled: true
+    
     pylint:
       enabled: true
-    oxc:
+    
+    # Security tools
+    gitleaks:
       enabled: true
-    shopifyThemeCheck:
+    
+    semgrep:
       enabled: true
-    luacheck:
+    
+    # Documentation tools
+    markdownlint:
       enabled: true
-    brakeman:
+    
+    # Docker tools
+    hadolint:
       enabled: true
-    dotenvLint:
+    
+    # YAML tools
+    yamllint:
       enabled: true
-    htmlhint:
+    
+    # GitHub tools
+    github-checks:
       enabled: true
-    checkmake:
+      timeout_ms: 120000  # 2 minutes for Discord bot tests
+    
+    # Language tools
+    languagetool:
       enabled: true
-    osvScanner:
+      level: "default"
+    
+    # Shell tools
+    shellcheck:
       enabled: true
 
 # =============================================================================
 # CHAT
 # =============================================================================
+
 chat:
   art: true
   auto_reply: true
+  
   integrations:
     jira:
       usage: "auto"
@@ -174,25 +188,42 @@ chat:
 # =============================================================================
 # KNOWLEDGE BASE
 # =============================================================================
+
 knowledge_base:
   opt_out: false
+  
   web_search:
     enabled: true
+  
   code_guidelines:
     enabled: true
-    filePatterns: []
+    filePatterns:
+      - ".cursor/rules/*.mdc"
+      - "TESTING_REPORT.md"
+      - "README.md"
+      - "docs/**/*.md"
+      - "AGENTS.md"
+      - "GEMINI.md"
+      - "QWEN.md"
+      - "LLM.txt"
+  
   learnings:
     scope: "auto"
+  
   issues:
     scope: "auto"
+  
   jira:
     usage: "auto"
     project_keys: []
+  
   linear:
     usage: "auto"
     team_keys: []
+  
   pull_requests:
     scope: "auto"
+  
   mcp:
     usage: "auto"
     disabled_servers: []
@@ -200,9 +231,19 @@ knowledge_base:
 # =============================================================================
 # CODE GENERATION
 # =============================================================================
+
 code_generation:
   docstrings:
-    language: "pt-BR"  # Define o idioma para geração de docstrings como português brasileiro
-    path_instructions: []
+    language: "pt-BR"
+    path_instructions:
+      - path: "src/**"
+        instructions: "Generate comprehensive docstrings in Portuguese following Google style format"
+      - path: "tests/**"
+        instructions: "Generate clear test docstrings explaining test purpose and scenarios"
+  
   unit_tests:
-    path_instructions: []
+    path_instructions:
+      - path: "src/**"
+        instructions: "Generate unit tests following pytest conventions with proper mocking for Discord.py and external APIs"
+      - path: "tests/**"
+        instructions: "Ensure tests are isolated, fast, and cover edge cases"
