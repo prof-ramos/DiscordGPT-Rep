@@ -1,0 +1,59 @@
+---
+globs: *.py
+description: Python coding style and naming conventions
+---
+
+# Python Coding Style & Naming Conventions
+
+## Code Style
+- Follow **PEP 8** standards with **4-space indentation**
+- Use type hints where practical for better code documentation
+- Maximum line length: 88 characters (Black formatter default)
+
+## Naming Conventions
+- **Modules/Functions**: `snake_case` (e.g., `get_user_data()`, `message_utils.py`)
+- **Classes**: `PascalCase` (e.g., `DiscordBot`, `MessageHandler`)
+- **Constants**: `UPPER_SNAKE_CASE` (e.g., `MAX_RETRY_ATTEMPTS`, `DISCORD_TOKEN`)
+- **Private members**: Prefix with single underscore (e.g., `_internal_method()`)
+
+## Logging Standards
+Always use the centralized logger instead of `print()` statements:
+```python
+from src.log import logger
+
+# Correct usage
+logger.info("Bot started successfully")
+logger.error(f"Failed to process message: {error}")
+logger.debug("Processing user request", extra={"user_id": user_id})
+```
+
+## Import Organization
+```python
+# Standard library imports
+import asyncio
+import os
+from typing import Optional, Dict, List
+
+# Third-party imports
+import discord
+from discord.ext import commands
+
+# Local imports (use absolute imports)
+from src.providers import get_provider
+from src.personas import load_persona
+```
+
+## Error Handling
+- Use specific exception types when possible
+- Log errors appropriately with context
+- Avoid bare `except:` clauses unless absolutely necessary
+
+## Async/Await Patterns
+- Use `async def` for coroutine functions
+- Prefer `asyncio.gather()` for concurrent operations
+- Handle cancellation with proper cleanup in `finally` blocks
+
+## Discord.py Specific
+- Use `discord.py` type hints (e.g., `discord.Message`, `discord.User`)
+- Handle rate limits gracefully with retry logic
+- Validate permissions before executing admin-only commands

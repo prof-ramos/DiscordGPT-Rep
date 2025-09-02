@@ -1,0 +1,1036 @@
+---
+globs: src/*.py,*.py
+description: API integration patterns and best practices for AI providers
+---
+
+# API Integration Patterns
+
+## Provider Architecture
+
+### Base Provider Interface
+```python
+# ✅ GOOD - Abstract base class for AI providers
+from abc import ABC, abstractmethod
+from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
+
+@dataclass
+class ProviderConfig:
+    """Configuration for AI provider"""
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    timeout: int = 30
+    max_retries: int = 3
+    model: str = "auto"
+
+@dataclass
+class UsageStats:
+    """Usage statistics for API calls"""
+    tokens_used: int = 0
+    requests_made: int = 0
+    cost_estimate: float = 0.0
+    last_request_time: Optional[float] = None
+
+class AIProvider(ABC):
+    """Abstract base class for AI providers"""
+
+    def __init__(self, config: ProviderConfig):
+        self.config = config
+        self.usage_stats = UsageStats()
+        self._client = None
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Name of the provider"""
+        pass
+
+    @property
+    @abstractmethod
+    def supported_models(self) -> List[str]:
+        """List of supported models"""
+        pass
+
+    @abstractmethod
+    async def initialize(self) -> bool:
+        """Initialize the provider client"""
+        pass
+
+    @abstractmethod
+    async def generate_text(self, prompt: str, **kwargs) -> str:
+        """Generate text response"""
+        pass
+
+    @abstractmethod
+    async def generate_with_history(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Generate response with conversation history"""
+        pass
+
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Check if provider is available"""
+        pass
+
+    @abstractmethod
+    async def close(self):
+        """Clean up provider resources"""
+        pass
+
+    def update_usage_stats(self, tokens: int, cost: float = 0.0):
+        """Update usage statistics"""
+        import time
+        self.usage_stats.tokens_used += tokens
+        self.usage_stats.requests_made += 1
+        self.usage_stats.cost_estimate += cost
+        self.usage_stats.last_request_time = time.time()
+
+    def get_usage_stats(self) -> UsageStats:
+        """Get current usage statistics"""
+        return self.usage_stats
+```
+
+### Provider Factory Pattern
+```python
+# ✅ GOOD - Factory pattern for provider creation
+from typing import Dict, Type, Optional
+from enum import Enum
+
+class ProviderType(Enum):
+    """Available AI provider types"""
+    OPENAI = "openai"
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+    GROK = "grok"
+    FREE = "free"
+
+class ProviderFactory:
+    """Factory for creating AI providers"""
+
+    _providers: Dict[ProviderType, Type[AIProvider]] = {}
+
+    @classmethod
+    def register_provider(cls, provider_type: ProviderType, provider_class: Type[AIProvider]):
+        """Register a provider class"""
+        cls._providers[provider_type] = provider_class
+
+    @classmethod
+    def create_provider(cls, provider_type: ProviderType, config: ProviderConfig) -> Optional[AIProvider]:
+        """Create provider instance"""
+        provider_class = cls._providers.get(provider_type)
+        if provider_class:
+            try:
+                provider = provider_class(config)
+                # Test initialization
+                if asyncio.run(provider.initialize()):
+                    return provider
+                else:
+                    logger.warning(f"Failed to initialize {provider_type.value}")
+                    return None
+            except Exception as e:
+                logger.error(f"Error creating {provider_type.value}: {e}")
+                return None
+        else:
+            logger.error(f"Unknown provider type: {provider_type}")
+            return None
+
+    @classmethod
+    def get_available_providers(cls) -> List[ProviderType]:
+        """Get list of registered providers"""
+        return list(cls._providers.keys())
+
+# Usage
+factory = ProviderFactory()
+
+# Register providers
+factory.register_provider(ProviderType.OPENAI, OpenAIProvider)
+factory.register_provider(ProviderType.CLAUDE, ClaudeProvider)
+factory.register_provider(ProviderType.GEMINI, GeminiProvider)
+factory.register_provider(ProviderType.GROK, GrokProvider)
+factory.register_provider(ProviderType.FREE, FreeProvider)
+
+# Create provider
+config = ProviderConfig(api_key=os.getenv("OPENAI_KEY"))
+provider = factory.create_provider(ProviderType.OPENAI, config)
+```
+
+## Provider Manager
+
+### Provider Selection Strategy
+```python
+# ✅ GOOD - Intelligent provider selection
+from typing import List, Optional
+import random
+import time
+
+class ProviderSelectionStrategy(Enum):
+    ROUND_ROBIN = "round_robin"
+    LEAST_LOADED = "least_loaded"
+    RANDOM = "random"
+    COST_OPTIMIZED = "cost_optimized"
+
+class ProviderManager:
+    """Manages multiple AI providers with intelligent selection"""
+
+    def __init__(self):
+        self.providers: Dict[ProviderType, AIProvider] = {}
+        self.strategy = ProviderSelectionStrategy.LEAST_LOADED
+        self.last_used_index = 0
+        self.provider_weights: Dict[ProviderType, float] = {}
+
+    def add_provider(self, provider_type: ProviderType, provider: AIProvider):
+        """Add provider to manager"""
+        self.providers[provider_type] = provider
+        # Initialize weight based on provider cost
+        self.provider_weights[provider_type] = self._calculate_provider_weight(provider)
+
+    def remove_provider(self, provider_type: ProviderType):
+        """Remove provider from manager"""
+        if provider_type in self.providers:
+            provider = self.providers[provider_type]
+            asyncio.run(provider.close())  # Clean up
+            del self.providers[provider_type]
+            del self.provider_weights[provider_type]
+
+    def _calculate_provider_weight(self, provider: AIProvider) -> float:
+        """Calculate provider selection weight"""
+        # Higher weight = more likely to be selected
+        if not provider.is_available():
+            return 0.0
+
+        stats = provider.get_usage_stats()
+
+        # Base weight
+        weight = 1.0
+
+        # Adjust based on recent usage (prefer less used)
+        if stats.last_request_time:
+            time_since_last = time.time() - stats.last_request_time
+            if time_since_last < 60:  # Used in last minute
+                weight *= 0.5
+
+        # Adjust based on error rate (prefer reliable providers)
+        # This would require tracking error rates per provider
+
+        return weight
+
+    def select_provider(self, preferred_type: Optional[ProviderType] = None) -> Optional[AIProvider]:
+        """Select provider using current strategy"""
+        if preferred_type and preferred_type in self.providers:
+            provider = self.providers[preferred_type]
+            if provider.is_available():
+                return provider
+
+        available_providers = [
+            (ptype, provider) for ptype, provider in self.providers.items()
+            if provider.is_available()
+        ]
+
+        if not available_providers:
+            return None
+
+        if self.strategy == ProviderSelectionStrategy.RANDOM:
+            return random.choice(available_providers)[1]
+
+        elif self.strategy == ProviderSelectionStrategy.ROUND_ROBIN:
+            # Simple round-robin selection
+            self.last_used_index = (self.last_used_index + 1) % len(available_providers)
+            return available_providers[self.last_used_index][1]
+
+        elif self.strategy == ProviderSelectionStrategy.LEAST_LOADED:
+            # Select least recently used
+            return max(available_providers,
+                      key=lambda x: x[1].get_usage_stats().last_request_time or 0)[1]
+
+        elif self.strategy == ProviderSelectionStrategy.COST_OPTIMIZED:
+            # Select based on cost efficiency
+            return min(available_providers,
+                      key=lambda x: self._estimate_cost(x[1]))[1]
+
+        # Default to first available
+        return available_providers[0][1]
+
+    def _estimate_cost(self, provider: AIProvider) -> float:
+        """Estimate cost per request for provider"""
+        # This would need to be implemented based on actual pricing
+        # For now, return a simple estimate
+        stats = provider.get_usage_stats()
+        if stats.requests_made > 0:
+            return stats.cost_estimate / stats.requests_made
+        return 0.0
+
+    async def generate_response(self, prompt: str, **kwargs) -> str:
+        """Generate response using selected provider"""
+        provider = self.select_provider(kwargs.get('preferred_provider'))
+
+        if not provider:
+            raise Exception("No available providers")
+
+        try:
+            response = await provider.generate_text(prompt, **kwargs)
+
+            # Update usage stats
+            provider.update_usage_stats(
+                tokens=len(prompt.split()) + len(response.split()),  # Rough estimate
+                cost=self._estimate_cost(provider)
+            )
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Provider {provider.provider_name} failed: {e}")
+            # Try fallback provider
+            fallback_provider = self.select_provider()
+            if fallback_provider and fallback_provider != provider:
+                logger.info(f"Trying fallback provider: {fallback_provider.provider_name}")
+                return await fallback_provider.generate_text(prompt, **kwargs)
+            raise e
+
+    def get_provider_stats(self) -> Dict[str, Any]:
+        """Get statistics for all providers"""
+        stats = {}
+        for provider_type, provider in self.providers.items():
+            provider_stats = provider.get_usage_stats()
+            stats[provider_type.value] = {
+                'available': provider.is_available(),
+                'requests_made': provider_stats.requests_made,
+                'tokens_used': provider_stats.tokens_used,
+                'cost_estimate': provider_stats.cost_estimate,
+                'last_request': provider_stats.last_request_time
+            }
+        return stats
+```
+
+## Rate Limiting & Quotas
+
+### Intelligent Rate Limiter
+```python
+# ✅ GOOD - Advanced rate limiting with burst handling
+import asyncio
+from collections import deque
+import time
+from typing import Dict, List, Optional
+
+class RateLimiter:
+    """Advanced rate limiter with burst handling"""
+
+    def __init__(self, requests_per_minute: int = 60, burst_limit: int = 10):
+        self.requests_per_minute = requests_per_minute
+        self.burst_limit = burst_limit
+        self.time_window = 60  # seconds
+
+        # Request timestamps for sliding window
+        self.request_times: deque = deque(maxlen=requests_per_minute * 2)
+        self.burst_tokens = burst_limit
+        self.last_burst_refill = time.time()
+
+        # Per-user limits
+        self.user_limits: Dict[int, deque] = {}
+
+    def _refill_burst_tokens(self):
+        """Refill burst tokens based on time passed"""
+        now = time.time()
+        time_passed = now - self.last_burst_refill
+
+        # Refill tokens at rate of requests_per_minute per minute
+        tokens_to_add = int(time_passed * (self.requests_per_minute / 60))
+        self.burst_tokens = min(self.burst_limit, self.burst_tokens + tokens_to_add)
+
+        if tokens_to_add > 0:
+            self.last_burst_refill = now
+
+    def _clean_old_requests(self):
+        """Remove requests outside the time window"""
+        cutoff_time = time.time() - self.time_window
+        while self.request_times and self.request_times[0] < cutoff_time:
+            self.request_times.popleft()
+
+    def can_make_request(self, user_id: Optional[int] = None) -> tuple[bool, float]:
+        """
+        Check if request can be made
+        Returns: (can_make_request, wait_time_seconds)
+        """
+        now = time.time()
+
+        # Clean old data
+        self._clean_old_requests()
+        self._refill_burst_tokens()
+
+        # Check per-user limits if user_id provided
+        if user_id is not None:
+            if user_id not in self.user_limits:
+                self.user_limits[user_id] = deque(maxlen=30)  # 30 requests per user
+
+            user_requests = self.user_limits[user_id]
+            # Clean old user requests
+            cutoff_time = now - self.time_window
+            while user_requests and user_requests[0] < cutoff_time:
+                user_requests.popleft()
+
+            if len(user_requests) >= 10:  # Max 10 requests per minute per user
+                oldest_request = user_requests[0]
+                wait_time = self.time_window - (now - oldest_request)
+                return False, wait_time
+
+        # Check global rate limit
+        if len(self.request_times) >= self.requests_per_minute:
+            oldest_request = self.request_times[0]
+            wait_time = self.time_window - (now - oldest_request)
+            return False, wait_time
+
+        # Check burst limit
+        if self.burst_tokens <= 0:
+            # Calculate when next token will be available
+            time_since_refill = now - self.last_burst_refill
+            tokens_needed = 1
+            wait_time = (tokens_needed * 60) / self.requests_per_minute - time_since_refill
+            return False, max(0, wait_time)
+
+        return True, 0.0
+
+    def record_request(self, user_id: Optional[int] = None):
+        """Record that a request was made"""
+        now = time.time()
+
+        self.request_times.append(now)
+        self.burst_tokens -= 1
+
+        if user_id is not None:
+            if user_id not in self.user_limits:
+                self.user_limits[user_id] = deque(maxlen=30)
+            self.user_limits[user_id].append(now)
+
+# Usage
+rate_limiter = RateLimiter(requests_per_minute=60, burst_limit=10)
+
+async def handle_api_request(self, user_id: int, request_data: dict) -> dict:
+    """Handle API request with rate limiting"""
+    can_make_request, wait_time = rate_limiter.can_make_request(user_id)
+
+    if not can_make_request:
+        return {
+            'error': 'Rate limit exceeded',
+            'wait_time': wait_time,
+            'retry_after': int(wait_time)
+        }
+
+    # Record the request
+    rate_limiter.record_request(user_id)
+
+    # Process the request
+    try:
+        result = await self.process_request(request_data)
+        return {'success': True, 'data': result}
+    except Exception as e:
+        logger.error(f"Request processing failed: {e}")
+        return {'error': 'Internal server error'}
+```
+
+### Quota Management
+```python
+# ✅ GOOD - Comprehensive quota management
+from typing import Dict, Any, Optional
+import json
+import os
+
+class QuotaManager:
+    """Manage API quotas across different providers"""
+
+    def __init__(self, quota_file: str = "quotas.json"):
+        self.quota_file = quota_file
+        self.quotas: Dict[str, Dict[str, Any]] = {}
+        self._load_quotas()
+
+    def _load_quotas(self):
+        """Load quota configuration from file"""
+        if os.path.exists(self.quota_file):
+            try:
+                with open(self.quota_file, 'r') as f:
+                    self.quotas = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load quotas: {e}")
+                self.quotas = {}
+
+    def _save_quotas(self):
+        """Save quota configuration to file"""
+        try:
+            with open(self.quota_file, 'w') as f:
+                json.dump(self.quotas, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save quotas: {e}")
+
+    def set_quota(self, provider: str, quota_type: str, limit: int, period: str = "month"):
+        """Set quota for a provider"""
+        if provider not in self.quotas:
+            self.quotas[provider] = {}
+
+        self.quotas[provider][quota_type] = {
+            'limit': limit,
+            'period': period,
+            'used': 0,
+            'reset_time': self._calculate_reset_time(period)
+        }
+
+        self._save_quotas()
+
+    def _calculate_reset_time(self, period: str) -> float:
+        """Calculate next reset time"""
+        import calendar
+        from datetime import datetime
+
+        now = datetime.now()
+
+        if period == "month":
+            # Next month
+            if now.month == 12:
+                next_month = 1
+                next_year = now.year + 1
+            else:
+                next_month = now.month + 1
+                next_year = now.year
+
+            # First day of next month
+            next_reset = datetime(next_year, next_month, 1)
+            return next_reset.timestamp()
+
+        elif period == "day":
+            # Next day
+            next_reset = datetime(now.year, now.month, now.day + 1)
+            return next_reset.timestamp()
+
+        elif period == "hour":
+            # Next hour
+            next_reset = datetime(now.year, now.month, now.day, now.hour + 1)
+            return next_reset.timestamp()
+
+        else:
+            # Default to 24 hours
+            return time.time() + 86400
+
+    def check_quota(self, provider: str, quota_type: str, amount: int = 1) -> tuple[bool, Optional[str]]:
+        """Check if quota allows the request"""
+        if provider not in self.quotas:
+            return True, None  # No quota set
+
+        provider_quotas = self.quotas[provider]
+        if quota_type not in provider_quotas:
+            return True, None  # No quota set for this type
+
+        quota = provider_quotas[quota_type]
+
+        # Check if quota needs reset
+        if time.time() > quota['reset_time']:
+            quota['used'] = 0
+            quota['reset_time'] = self._calculate_reset_time(quota['period'])
+            self._save_quotas()
+
+        # Check quota
+        if quota['used'] + amount > quota['limit']:
+            remaining_time = quota['reset_time'] - time.time()
+            hours_remaining = int(remaining_time / 3600)
+            return False, f"Quota exceeded. Resets in {hours_remaining} hours."
+
+        return True, None
+
+    def record_usage(self, provider: str, quota_type: str, amount: int = 1):
+        """Record quota usage"""
+        if provider in self.quotas and quota_type in self.quotas[provider]:
+            self.quotas[provider][quota_type]['used'] += amount
+            self._save_quotas()
+
+    def get_quota_status(self, provider: str) -> Dict[str, Any]:
+        """Get quota status for provider"""
+        if provider not in self.quotas:
+            return {'status': 'no_quotas'}
+
+        status = {}
+        for quota_type, quota in self.quotas[provider].items():
+            remaining = quota['limit'] - quota['used']
+            reset_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(quota['reset_time']))
+
+            status[quota_type] = {
+                'used': quota['used'],
+                'limit': quota['limit'],
+                'remaining': remaining,
+                'period': quota['period'],
+                'reset_time': reset_time
+            }
+
+        return status
+
+# Usage
+quota_manager = QuotaManager()
+
+async def check_and_record_quota(self, provider: str, user_id: int) -> bool:
+    """Check and record quota usage"""
+    # Check monthly quota
+    can_proceed, message = quota_manager.check_quota(provider, 'monthly_requests')
+
+    if not can_proceed:
+        await self.send_error_message(user_id, message)
+        return False
+
+    # Check daily quota
+    can_proceed, message = quota_manager.check_quota(provider, 'daily_requests')
+
+    if not can_proceed:
+        await self.send_error_message(user_id, message)
+        return False
+
+    # Record usage
+    quota_manager.record_usage(provider, 'monthly_requests')
+    quota_manager.record_usage(provider, 'daily_requests')
+
+    return True
+```
+
+## Request/Response Handling
+
+### Request Builder Pattern
+```python
+# ✅ GOOD - Flexible request building
+from typing import Dict, Any, Optional, List
+import json
+
+class APIRequestBuilder:
+    """Build API requests with validation and formatting"""
+
+    def __init__(self, base_url: str, api_key: Optional[str] = None):
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'DiscordGPT-Bot/1.0'
+        }
+
+        if api_key:
+            self.headers['Authorization'] = f'Bearer {api_key}'
+
+    def set_header(self, key: str, value: str):
+        """Set custom header"""
+        self.headers[key] = value
+        return self
+
+    def build_chat_request(self,
+                          messages: List[Dict[str, str]],
+                          model: str = "gpt-3.5-turbo",
+                          temperature: float = 0.7,
+                          max_tokens: Optional[int] = None) -> Dict[str, Any]:
+        """Build chat completion request"""
+        request_data = {
+            'model': model,
+            'messages': messages,
+            'temperature': temperature
+        }
+
+        if max_tokens:
+            request_data['max_tokens'] = max_tokens
+
+        return {
+            'url': f"{self.base_url}/chat/completions",
+            'method': 'POST',
+            'headers': self.headers,
+            'json': request_data
+        }
+
+    def build_image_request(self,
+                           prompt: str,
+                           size: str = "512x512",
+                           count: int = 1) -> Dict[str, Any]:
+        """Build image generation request"""
+        return {
+            'url': f"{self.base_url}/images/generations",
+            'method': 'POST',
+            'headers': self.headers,
+            'json': {
+                'prompt': prompt,
+                'size': size,
+                'n': count
+            }
+        }
+
+    def build_embeddings_request(self,
+                                texts: List[str],
+                                model: str = "text-embedding-ada-002") -> Dict[str, Any]:
+        """Build embeddings request"""
+        return {
+            'url': f"{self.base_url}/embeddings",
+            'method': 'POST',
+            'headers': self.headers,
+            'json': {
+                'model': model,
+                'input': texts
+            }
+        }
+
+# Usage
+builder = APIRequestBuilder("https://api.openai.com/v1", os.getenv("OPENAI_KEY"))
+
+# Chat request
+chat_request = builder.build_chat_request(
+    messages=[{"role": "user", "content": "Hello"}],
+    model="gpt-4",
+    temperature=0.8
+)
+
+# Image request
+image_request = builder.build_image_request(
+    prompt="A beautiful sunset",
+    size="1024x1024"
+)
+```
+
+### Response Parser Pattern
+```python
+# ✅ GOOD - Robust response parsing
+from typing import Dict, Any, Optional, List, Union
+import json
+
+class APIResponseParser:
+    """Parse and validate API responses"""
+
+    def __init__(self):
+        self.common_errors = {
+            400: "Bad Request - The request was malformed",
+            401: "Unauthorized - Invalid API key",
+            403: "Forbidden - Insufficient permissions",
+            404: "Not Found - Resource not found",
+            429: "Rate Limited - Too many requests",
+            500: "Internal Server Error",
+            502: "Bad Gateway",
+            503: "Service Unavailable",
+            504: "Gateway Timeout"
+        }
+
+    def parse_chat_response(self, response_data: Dict[str, Any]) -> str:
+        """Parse chat completion response"""
+        try:
+            choices = response_data.get('choices', [])
+            if not choices:
+                raise ValueError("No choices in response")
+
+            first_choice = choices[0]
+            message = first_choice.get('message', {})
+
+            if 'content' not in message:
+                raise ValueError("No content in message")
+
+            return message['content'].strip()
+
+        except (KeyError, IndexError, TypeError) as e:
+            logger.error(f"Failed to parse chat response: {e}")
+            raise ValueError("Invalid chat response format")
+
+    def parse_image_response(self, response_data: Dict[str, Any]) -> List[str]:
+        """Parse image generation response"""
+        try:
+            data = response_data.get('data', [])
+            if not data:
+                raise ValueError("No image data in response")
+
+            urls = []
+            for item in data:
+                if 'url' in item:
+                    urls.append(item['url'])
+                elif 'b64_json' in item:
+                    # Handle base64 encoded images
+                    urls.append(f"data:image/png;base64,{item['b64_json']}")
+
+            if not urls:
+                raise ValueError("No valid image URLs found")
+
+            return urls
+
+        except (KeyError, TypeError) as e:
+            logger.error(f"Failed to parse image response: {e}")
+            raise ValueError("Invalid image response format")
+
+    def parse_embeddings_response(self, response_data: Dict[str, Any]) -> List[List[float]]:
+        """Parse embeddings response"""
+        try:
+            data = response_data.get('data', [])
+            if not data:
+                raise ValueError("No embeddings data in response")
+
+            embeddings = []
+            for item in data:
+                if 'embedding' in item:
+                    embeddings.append(item['embedding'])
+                else:
+                    raise ValueError("Missing embedding in data item")
+
+            return embeddings
+
+        except (KeyError, TypeError) as e:
+            logger.error(f"Failed to parse embeddings response: {e}")
+            raise ValueError("Invalid embeddings response format")
+
+    def handle_error_response(self, status_code: int, response_text: str) -> str:
+        """Handle HTTP error responses"""
+        try:
+            error_data = json.loads(response_text)
+            error_message = error_data.get('error', {}).get('message', '')
+
+            if error_message:
+                return f"API Error: {error_message}"
+
+        except json.JSONDecodeError:
+            pass
+
+        # Use common error messages
+        if status_code in self.common_errors:
+            return f"HTTP {status_code}: {self.common_errors[status_code]}"
+
+        return f"HTTP {status_code}: Unknown error"
+
+    def extract_rate_limit_info(self, response_headers: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """Extract rate limit information from headers"""
+        rate_limit_info = {}
+
+        # OpenAI style headers
+        if 'x-ratelimit-remaining-requests' in response_headers:
+            rate_limit_info['remaining_requests'] = int(response_headers.get('x-ratelimit-remaining-requests', 0))
+            rate_limit_info['reset_time'] = int(response_headers.get('x-ratelimit-reset-requests', 0))
+
+        # Anthropic style headers
+        elif 'anthropic-ratelimit-requests-remaining' in response_headers:
+            rate_limit_info['remaining_requests'] = int(response_headers.get('anthropic-ratelimit-requests-remaining', 0))
+            rate_limit_info['reset_time'] = int(response_headers.get('anthropic-ratelimit-requests-reset', 0))
+
+        if rate_limit_info:
+            return rate_limit_info
+
+        return None
+
+# Usage
+parser = APIResponseParser()
+
+async def make_api_call(self, request_config: Dict[str, Any]) -> Union[str, List[str], List[List[float]]]:
+    """Make API call with proper response parsing"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.request(**request_config) as response:
+                if response.status == 200:
+                    response_data = await response.json()
+
+                    # Determine response type and parse accordingly
+                    url = request_config['url']
+                    if '/chat/completions' in url:
+                        return parser.parse_chat_response(response_data)
+                    elif '/images/generations' in url:
+                        return parser.parse_image_response(response_data)
+                    elif '/embeddings' in url:
+                        return parser.parse_embeddings_response(response_data)
+                    else:
+                        return response_data
+
+                else:
+                    error_text = await response.text()
+                    error_message = parser.handle_error_response(response.status, error_text)
+
+                    # Check for rate limiting
+                    rate_limit_info = parser.extract_rate_limit_info(dict(response.headers))
+                    if rate_limit_info:
+                        logger.warning(f"Rate limited: {rate_limit_info}")
+
+                    raise Exception(error_message)
+
+    except aiohttp.ClientError as e:
+        logger.error(f"HTTP client error: {e}")
+        raise Exception("Network error occurred")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing error: {e}")
+        raise Exception("Invalid response format")
+```
+
+## Provider-Specific Implementations
+
+### OpenAI Provider
+```python
+# ✅ GOOD - Complete OpenAI provider implementation
+class OpenAIProvider(AIProvider):
+    """OpenAI API provider implementation"""
+
+    def __init__(self, config: ProviderConfig):
+        super().__init__(config)
+        self.client = None
+
+    @property
+    def provider_name(self) -> str:
+        return "OpenAI"
+
+    @property
+    def supported_models(self) -> List[str]:
+        return [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4-turbo",
+            "gpt-4",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-16k"
+        ]
+
+    async def initialize(self) -> bool:
+        """Initialize OpenAI client"""
+        try:
+            if not self.config.api_key:
+                logger.warning("OpenAI API key not provided")
+                return False
+
+            from openai import AsyncOpenAI
+            self.client = AsyncOpenAI(
+                api_key=self.config.api_key,
+                timeout=self.config.timeout
+            )
+
+            # Test connection
+            await self.client.models.list()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
+            return False
+
+    async def generate_text(self, prompt: str, **kwargs) -> str:
+        """Generate text using OpenAI"""
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            return await self.generate_with_history(messages, **kwargs)
+
+        except Exception as e:
+            logger.error(f"OpenAI text generation failed: {e}")
+            raise
+
+    async def generate_with_history(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Generate response with conversation history"""
+        try:
+            model = kwargs.get('model', self.config.model)
+            if model == 'auto':
+                model = 'gpt-4o-mini'  # Default model
+
+            temperature = kwargs.get('temperature', 0.7)
+            max_tokens = kwargs.get('max_tokens', 1000)
+
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=self.config.timeout
+            )
+
+            content = response.choices[0].message.content
+            tokens_used = response.usage.total_tokens if response.usage else 0
+
+            # Update usage statistics
+            self.update_usage_stats(tokens_used, self._estimate_cost(tokens_used, model))
+
+            return content
+
+        except Exception as e:
+            logger.error(f"OpenAI chat completion failed: {e}")
+            raise
+
+    def is_available(self) -> bool:
+        """Check if OpenAI is available"""
+        return self.client is not None
+
+    async def close(self):
+        """Clean up OpenAI resources"""
+        if self.client:
+            # OpenAI client doesn't need explicit cleanup
+            self.client = None
+
+    def _estimate_cost(self, tokens: int, model: str) -> float:
+        """Estimate cost based on model and tokens"""
+        # Cost per 1000 tokens (approximate)
+        costs = {
+            "gpt-4o": 0.03,
+            "gpt-4o-mini": 0.0015,
+            "gpt-4-turbo": 0.03,
+            "gpt-4": 0.06,
+            "gpt-3.5-turbo": 0.002
+        }
+
+        cost_per_1000 = costs.get(model, 0.01)
+        return (tokens / 1000) * cost_per_1000
+```
+
+### Free Provider with G4F
+```python
+# ✅ GOOD - Free provider using G4F
+class FreeProvider(AIProvider):
+    """Free provider using G4F library"""
+
+    def __init__(self, config: ProviderConfig):
+        super().__init__(config)
+        self.client = None
+
+    @property
+    def provider_name(self) -> str:
+        return "Free"
+
+    @property
+    def supported_models(self) -> List[str]:
+        return [
+            "gpt-3.5-turbo",
+            "gpt-4",
+            "claude-3-haiku",
+            "gemini-pro",
+            "blackboxai"
+        ]
+
+    async def initialize(self) -> bool:
+        """Initialize G4F client"""
+        try:
+            from g4f.client import AsyncClient
+            self.client = AsyncClient()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to initialize G4F client: {e}")
+            return False
+
+    async def generate_text(self, prompt: str, **kwargs) -> str:
+        """Generate text using G4F"""
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            return await self.generate_with_history(messages, **kwargs)
+
+        except Exception as e:
+            logger.error(f"G4F text generation failed: {e}")
+            raise
+
+    async def generate_with_history(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Generate response with conversation history"""
+        try:
+            model = kwargs.get('model', 'gpt-3.5-turbo')
+
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=kwargs.get('temperature', 0.7),
+                max_tokens=kwargs.get('max_tokens', 1000)
+            )
+
+            content = response.choices[0].message.content
+
+            # Rough token estimation
+            total_tokens = sum(len(msg['content'].split()) for msg in messages) + len(content.split())
+            self.update_usage_stats(total_tokens)
+
+            return content
+
+        except Exception as e:
+            logger.error(f"G4F chat completion failed: {e}")
+            raise
+
+    def is_available(self) -> bool:
+        """Check if G4F is available"""
+        return self.client is not None
+
+    async def close(self):
+        """Clean up G4F resources"""
+        if self.client:
+            self.client = None
+```
