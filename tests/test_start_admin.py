@@ -43,6 +43,7 @@ class TestStartAdmin:
              patch('start_admin.webbrowser.open') as mock_open, \
              patch('start_admin.time.sleep') as mock_sleep:
             proc = Mock()
-            proc.wait = Mock(side_effect=KeyboardInterrupt)
+            # Simula término limpo do processo
+            proc.wait = Mock(return_value=0)
             mock_popen.return_value = proc
             assert sa.start_admin_panel() is True
