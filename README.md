@@ -20,7 +20,10 @@
 
 * **Python 3.9 ou superior**
 * **Renomeie o arquivo `.env.example` para `.env`**
-* Execute `pip3 install -r requirements.txt` para instalar as dependências necessárias
+* Recomendado: Use o gerenciador de ambiente/dep. `uv`
+  - Instale: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  - Crie venv: `uv venv .venv && source .venv/bin/activate`
+  - Instale deps: `uv pip install -r requirements.txt`
 * Opcional: Chaves de API para provedores premium (OpenAI, Claude, Gemini, Grok)
 
 ---
@@ -44,11 +47,11 @@
 
    ![image](https://user-images.githubusercontent.com/89479282/205949600-0c7ddb40-7e82-47a0-b59a-b089f929d177.png)
 
-## Passo 2: Execute o bot no desktop
+## Passo 2: Execute o bot no desktop (com uv)
 
 1. Abra um terminal ou prompt de comando
 2. Navegue até o diretório onde você instalou o bot ChatGPT para Discord
-3. Execute `python3 main.py` ou `python main.py` para iniciar o bot
+3. Execute `uv run -- python main.py` para iniciar o bot
 
 ---
 
@@ -135,9 +138,12 @@ A geração de imagens agora está integrada ao sistema de provedores:
 
    2. Cole no `.env` na variável `DISCORD_CHANNEL_ID`
 
-## Opcional: Desativar logs
+## Logs (runtime e testes)
 
-* Defina o valor de `LOGGING` no `.env` como False
+* Runtime: por padrão, logs vão para console e `./logs/chatgpt_discord_bot.log`
+* Configure com env vars: `LOG_LEVEL`, `LOG_TO_FILE`, `LOG_DIR`, `LOG_FILE`
+* Testes (pytest): logs também em `/tmp/discordgpt-tests.log`
+* Para desativar logs em arquivo: `LOG_TO_FILE=False`
 
 ## Comandos
 

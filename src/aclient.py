@@ -37,9 +37,15 @@ class DiscordClient(commands.Bot):
         self.conversation_limit = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "20"))
         self.trim_size = int(os.getenv("TRIM_CONVERSATION_SIZE", "8"))
         
-        # Admin users
-        admin_ids = os.getenv("ADMIN_USER_IDS", "")
-        self.admin_users = [int(uid.strip()) for uid in admin_ids.split(",") if uid.strip()]
+        # Admin users (robust parsing; ignore inline comments and invalid tokens)
+        admin_ids_raw = os.getenv("ADMIN_USER_IDS", "")
+        parsed_admin_ids = []
+        for token in admin_ids_raw.split(","):
+            # remove inline comments and whitespace
+            token = token.split("#", 1)[0].strip()
+            if token.isdigit():
+                parsed_admin_ids.append(int(token))
+        self.admin_users = parsed_admin_ids
         
         logger.info("Discord client initialized")
     
