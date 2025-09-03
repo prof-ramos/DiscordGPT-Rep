@@ -53,9 +53,9 @@ class TestDiscordClientLogic:
         
         # Test getting available personas
         personas = get_available_personas()
-        assert "standard" in personas
+        assert "helpful" in personas
         assert "creative" in personas
         
         # Test jailbreak detection
         assert is_jailbreak_persona("jailbreak-v1") is True
-        assert is_jailbreak_persona("standard") is False
+        assert is_jailbreak_persona("helpful") is False
