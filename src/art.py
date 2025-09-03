@@ -1,7 +1,10 @@
 import os
+from openai import AsyncOpenAI
 from g4f.client import AsyncClient
 from g4f.Provider import BingCreateImages, Gemini, OpenaiChat
-from src.log import logger
+
+# Initialize OpenAI client only if key is available
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_KEY")) if os.getenv("OPENAI_KEY") else None
 
 def get_image_provider(provider_name: str):
     providers = {
@@ -29,35 +32,28 @@ def get_random_art() -> str:
     return art
 
 async def draw(model: str, prompt: str) -> str:
-    """Generate an image URL using either OpenAI (if configured) or g4f fallback.
+    """Generate an image URL.
 
-    - Avoids importing or initializing OpenAI client at module import time.
-    - Provides clear logging when falling back due to missing configuration.
+    - Uses OpenAI if enabled and configured; propagates errors to caller.
+    - Uses g4f provider when OpenAI is disabled via OPENAI_ENABLED=False.
     """
-    openai_enabled = os.getenv("OPENAI_ENABLED", "True").lower() in {"1", "true", "yes", "y"}
-    api_key = os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY")
+    openai_enabled = os.getenv("OPENAI_ENABLED", "True").lower() not in {"false", "0", "no", "n"}
 
-    # Use OpenAI if explicitly enabled and api key present
-    if openai_enabled and api_key:
-        try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=api_key)
-            response = await client.images.generate(
-                model="gpt-image-1",
-                prompt=prompt,
-                size="1792x1024",
-                quality="auto",
-                n=1,
-            )
-            return response.data[0].url
-        except Exception as e:
-            logger.warning(f"OpenAI image generation failed, falling back to g4f: {e}")
+    if openai_enabled:
+        if not openai_client:
+            raise ValueError("OPENAI_KEY not configured for image generation")
+        response = await openai_client.images.generate(
+            model="gpt-image-1",
+            prompt=prompt,
+            size="1792x1024",
+            quality="auto",
+            n=1,
+        )
+        return response.data[0].url
 
-    # Fallback path using g4f
-    if not api_key:
-        logger.info("OPENAI_KEY not set; using free image provider fallback")
+    # g4f fallback path
     image_provider = get_image_provider(model)
     g4f_client = AsyncClient(image_provider=image_provider)
     response = await g4f_client.images.generate(prompt=prompt)
-    return getattr(response, "data", [{"url": getattr(response, "url", "")}])[0].get("url") or getattr(response, "url", "")
-
+    # Expect response.data[0].url from tests
+    return response.data[0].url

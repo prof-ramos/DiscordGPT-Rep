@@ -1,0 +1,795 @@
+---
+globs: src/*.py,*.py
+description: Async/await patterns and concurrency best practices
+---
+
+# Async/Await Patterns & Concurrency
+
+## Async Function Basics
+
+### Proper Async Function Declaration
+```python
+# ✅ GOOD - Always use async def for coroutines
+async def process_message(self, content: str, user_id: int) -> str:
+    """Process user message asynchronously"""
+    # Async operations here
+    response = await self.generate_ai_response(content)
+    return response
+
+# ❌ BAD - Don't use def for async functions
+def process_message(self, content: str, user_id: int) -> str:  # Missing async!
+    # This will block the event loop
+    return "response"
+
+# ❌ BAD - Don't call async functions without await
+async def handle_event(self, message):
+    # Don't do this:
+    self.process_message(message.content, message.author.id)  # Missing await!
+
+    # Do this instead:
+    response = await self.process_message(message.content, message.author.id)
+```
+
+### Async Context Managers
+```python
+# ✅ GOOD - Use async context managers
+async def fetch_data(self, url: str) -> dict:
+    """Fetch data using aiohttp with proper context management"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            return await response.json()
+
+# ✅ GOOD - Custom async context managers
+class DatabaseConnection:
+    async def __aenter__(self):
+        self.connection = await asyncpg.connect(self.dsn)
+        return self.connection
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.connection.close()
+
+# Usage
+async def save_data(self, data: dict):
+    async with DatabaseConnection() as conn:
+        await conn.execute("INSERT INTO messages VALUES ($1, $2)", data['user'], data['content'])
+```
+
+## Concurrency Patterns
+
+### Concurrent API Calls
+```python
+import asyncio
+from typing import List, Dict, Any
+
+# ✅ GOOD - Use asyncio.gather for concurrent operations
+async def fetch_multiple_responses(self, messages: List[Dict[str, str]]) -> List[str]:
+    """Fetch multiple AI responses concurrently"""
+    tasks = [
+        self.provider_manager.get_response([msg])
+        for msg in messages
+    ]
+
+    # Execute all requests concurrently
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Handle exceptions
+    results = []
+    for i, response in enumerate(responses):
+        if isinstance(response, Exception):
+            logger.error(f"Error in request {i}: {response}")
+            results.append("❌ Erro na solicitação")
+        else:
+            results.append(response)
+
+    return results
+
+# ✅ GOOD - Use asyncio.as_completed for streaming results
+async def stream_responses(self, queries: List[str]):
+    """Process queries as they complete"""
+    tasks = {asyncio.create_task(self.process_query(q)): q for q in queries}
+
+    for coro in asyncio.as_completed(tasks):
+        query = tasks[coro]
+        try:
+            result = await coro
+            yield query, result
+        except Exception as e:
+            logger.error(f"Error processing {query}: {e}")
+            yield query, None
+```
+
+### Task Management
+```python
+class TaskManager:
+    """Manage background tasks for Discord bot"""
+
+    def __init__(self):
+        self.tasks: Set[asyncio.Task] = set()
+        self.cleanup_interval = 300  # 5 minutes
+
+    def create_task(self, coro, name: str = None) -> asyncio.Task:
+        """Create and track a background task"""
+        task = asyncio.create_task(coro, name=name)
+
+        # Add completion callback
+        task.add_done_callback(self.tasks.discard)
+
+        # Track the task
+        self.tasks.add(task)
+
+        logger.info(f"Created background task: {name or 'unnamed'}")
+        return task
+
+    async def cleanup_completed_tasks(self):
+        """Remove completed tasks from tracking"""
+        # This is called periodically
+        completed = {task for task in self.tasks if task.done()}
+        self.tasks -= completed
+
+        for task in completed:
+            try:
+                # Log any exceptions
+                if task.exception():
+                    logger.error(f"Background task failed: {task.exception()}")
+            except asyncio.CancelledError:
+                pass  # Task was cancelled, this is normal
+
+    async def cancel_all_tasks(self):
+        """Cancel all running tasks"""
+        logger.info(f"Cancelling {len(self.tasks)} background tasks")
+
+        for task in self.tasks:
+            task.cancel()
+
+        # Wait for all tasks to complete/cancel
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+
+        self.tasks.clear()
+
+# Usage in Discord bot
+class MyBot(commands.Bot):
+    def __init__(self):
+        super().__init__()
+        self.task_manager = TaskManager()
+
+    async def setup_hook(self):
+        """Setup background cleanup task"""
+        self.task_manager.create_task(
+            self._periodic_cleanup(),
+            name="cleanup"
+        )
+
+    async def _periodic_cleanup(self):
+        """Periodic cleanup of completed tasks"""
+        while True:
+            await asyncio.sleep(self.task_manager.cleanup_interval)
+            await self.task_manager.cleanup_completed_tasks()
+
+    async def close(self):
+        """Cleanup on shutdown"""
+        await self.task_manager.cancel_all_tasks()
+        await super().close()
+```
+
+### Queue-Based Processing
+```python
+import asyncio
+from collections import deque
+from typing import Deque, Any, Callable, Awaitable
+
+class MessageQueue:
+    """Queue for processing messages asynchronously"""
+
+    def __init__(self, max_workers: int = 3):
+        self.queue: Deque[Any] = deque()
+        self.max_workers = max_workers
+        self.workers: List[asyncio.Task] = []
+        self.processing = False
+
+    async def add_message(self, message_data: dict):
+        """Add message to processing queue"""
+        self.queue.append(message_data)
+
+        # Start processing if not already running
+        if not self.processing:
+            await self.start_processing()
+
+    async def start_processing(self):
+        """Start worker tasks"""
+        self.processing = True
+
+        for i in range(self.max_workers):
+            worker = asyncio.create_task(self._worker_loop(), name=f"worker-{i}")
+            self.workers.append(worker)
+
+    async def _worker_loop(self):
+        """Worker loop for processing messages"""
+        while self.processing or self.queue:
+            try:
+                # Get next message with timeout
+                message_data = await asyncio.wait_for(
+                    self._get_next_message(),
+                    timeout=1.0
+                )
+
+                # Process the message
+                await self._process_message(message_data)
+
+            except asyncio.TimeoutError:
+                # No messages available, check if we should stop
+                if not self.processing and not self.queue:
+                    break
+                continue
+
+            except Exception as e:
+                logger.error(f"Error in worker loop: {e}")
+                await asyncio.sleep(1)  # Brief pause before retry
+
+    async def _get_next_message(self) -> dict:
+        """Get next message from queue (async)"""
+        while not self.queue:
+            await asyncio.sleep(0.1)  # Small delay to prevent busy waiting
+
+        return self.queue.popleft()
+
+    async def _process_message(self, message_data: dict):
+        """Process individual message"""
+        try:
+            # Simulate message processing
+            user_id = message_data['user_id']
+            content = message_data['content']
+
+            # Process with AI
+            response = await self.generate_response(content, user_id)
+
+            # Send response back to Discord
+            await self.send_discord_response(user_id, response)
+
+            logger.info(f"Processed message for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to process message: {e}")
+            # Could implement retry logic here
+
+    async def stop_processing(self):
+        """Stop all workers"""
+        self.processing = False
+
+        # Wait for workers to finish
+        await asyncio.gather(*self.workers, return_exceptions=True)
+        self.workers.clear()
+
+# Usage
+message_queue = MessageQueue(max_workers=5)
+
+async def on_message(self, message):
+    """Handle incoming Discord messages"""
+    if message.author.bot:
+        return
+
+    # Add to processing queue instead of processing immediately
+    await message_queue.add_message({
+        'user_id': message.author.id,
+        'content': message.content,
+        'channel': message.channel
+    })
+```
+
+## Error Handling in Async Code
+
+### Exception Handling Patterns
+```python
+# ✅ GOOD - Proper exception handling in async functions
+async def safe_api_call(self, url: str, retries: int = 3) -> Optional[dict]:
+    """Make API call with proper error handling and retries"""
+    for attempt in range(retries):
+        try:
+            async with self.session.get(url) as response:
+                response.raise_for_status()
+                return await response.json()
+
+        except aiohttp.ClientError as e:
+            logger.warning(f"API call failed (attempt {attempt + 1}/{retries}): {e}")
+
+            if attempt < retries - 1:
+                # Exponential backoff
+                await asyncio.sleep(2 ** attempt)
+                continue
+            else:
+                logger.error(f"API call failed after {retries} attempts: {e}")
+                return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"API call timed out: {url}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Unexpected error in API call: {e}")
+            return None
+
+# ✅ GOOD - Exception handling in concurrent operations
+async def batch_process_with_error_handling(self, items: List[dict]) -> List[dict]:
+    """Process items concurrently with individual error handling"""
+
+    async def process_item(item: dict) -> dict:
+        try:
+            result = await self.process_single_item(item)
+            return {'success': True, 'result': result, 'item': item}
+        except Exception as e:
+            logger.error(f"Failed to process item {item.get('id', 'unknown')}: {e}")
+            return {'success': False, 'error': str(e), 'item': item}
+
+    # Process all items concurrently
+    tasks = [process_item(item) for item in items]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Separate successful and failed results
+    successful = []
+    failed = []
+
+    for result in results:
+        if isinstance(result, Exception):
+            logger.error(f"Unexpected error in batch processing: {result}")
+            failed.append({'error': str(result)})
+        elif result['success']:
+            successful.append(result['result'])
+        else:
+            failed.append(result)
+
+    return {
+        'successful': successful,
+        'failed': failed,
+        'total_processed': len(successful) + len(failed)
+    }
+```
+
+### Cancellation Handling
+```python
+# ✅ GOOD - Proper cancellation handling
+async def cancellable_operation(self, operation_id: str):
+    """Operation that can be cancelled gracefully"""
+    try:
+        # Create task that can be cancelled
+        task = asyncio.create_task(self.long_running_operation())
+
+        # Store reference for cancellation
+        self.active_operations[operation_id] = task
+
+        # Wait for completion
+        result = await task
+
+        return result
+
+    except asyncio.CancelledError:
+        logger.info(f"Operation {operation_id} was cancelled")
+        # Cleanup resources
+        await self.cleanup_operation(operation_id)
+        raise  # Re-raise to propagate cancellation
+
+    finally:
+        # Always cleanup
+        if operation_id in self.active_operations:
+            del self.active_operations[operation_id]
+
+# ✅ GOOD - Timeout handling
+async def operation_with_timeout(self, timeout_seconds: int = 30):
+    """Operation with timeout protection"""
+    try:
+        return await asyncio.wait_for(
+            self.potentially_slow_operation(),
+            timeout=timeout_seconds
+        )
+
+    except asyncio.TimeoutError:
+        logger.error(f"Operation timed out after {timeout_seconds} seconds")
+        await self.handle_timeout()
+        return None
+```
+
+## Resource Management
+
+### Connection Pools
+```python
+import aiohttp
+from typing import Optional
+
+class ConnectionPool:
+    """Manage HTTP connections efficiently"""
+
+    def __init__(self, max_connections: int = 100):
+        self.max_connections = max_connections
+        self.session: Optional[aiohttp.ClientSession] = None
+        self._lock = asyncio.Lock()
+
+    async def get_session(self) -> aiohttp.ClientSession:
+        """Get or create shared session"""
+        async with self._lock:
+            if self.session is None or self.session.closed:
+                connector = aiohttp.TCPConnector(
+                    limit=self.max_connections,
+                    ttl_dns_cache=300,  # 5 minutes
+                    keepalive_timeout=60,
+                    enable_cleanup_closed=True
+                )
+
+                timeout = aiohttp.ClientTimeout(
+                    total=30,      # Total timeout
+                    connect=10,    # Connection timeout
+                    sock_read=10   # Socket read timeout
+                )
+
+                self.session = aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=timeout,
+                    headers={
+                        'User-Agent': 'DiscordGPT-Bot/1.0',
+                        'Accept': 'application/json'
+                    }
+                )
+
+            return self.session
+
+    async def close(self):
+        """Close session and cleanup connections"""
+        async with self._lock:
+            if self.session and not self.session.closed:
+                await self.session.close()
+                self.session = None
+
+# Usage in bot
+connection_pool = ConnectionPool()
+
+async def fetch_ai_response(self, prompt: str) -> str:
+    """Fetch AI response using connection pool"""
+    session = await connection_pool.get_session()
+
+    try:
+        async with session.post(
+            "https://api.openai.com/v1/chat/completions",
+            json={
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            headers={"Authorization": f"Bearer {self.api_key}"}
+        ) as response:
+
+            if response.status == 429:  # Rate limited
+                retry_after = int(response.headers.get('Retry-After', 60))
+                logger.warning(f"Rate limited, retrying after {retry_after}s")
+                await asyncio.sleep(retry_after)
+                return await self.fetch_ai_response(prompt)  # Retry
+
+            response.raise_for_status()
+            data = await response.json()
+            return data['choices'][0]['message']['content']
+
+    except aiohttp.ClientError as e:
+        logger.error(f"HTTP error: {e}")
+        raise
+```
+
+### Memory Management
+```python
+import weakref
+from typing import Dict, Any, Optional
+import gc
+
+class WeakCache:
+    """Memory-efficient cache using weak references"""
+
+    def __init__(self):
+        self._cache: Dict[str, weakref.ReferenceType] = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, key: str) -> Optional[Any]:
+        """Get cached item if it still exists"""
+        async with self._lock:
+            if key in self._cache:
+                ref = self._cache[key]
+                item = ref()
+                if item is not None:
+                    return item
+                else:
+                    # Object was garbage collected
+                    del self._cache[key]
+
+        return None
+
+    async def set(self, key: str, item: Any):
+        """Store weak reference to item"""
+        async with self._lock:
+            self._cache[key] = weakref.ref(item)
+
+    async def clear(self):
+        """Clear all cache entries"""
+        async with self._lock:
+            self._cache.clear()
+
+# Usage for caching user sessions
+user_sessions = WeakCache()
+
+async def get_user_session(self, user_id: int) -> dict:
+    """Get user session with automatic cleanup"""
+    session = await user_sessions.get(f"user_{user_id}")
+
+    if session is None:
+        # Create new session
+        session = {
+            'user_id': user_id,
+            'conversation_history': [],
+            'last_activity': asyncio.get_event_loop().time()
+        }
+        await user_sessions.set(f"user_{user_id}", session)
+
+    return session
+```
+
+## Testing Async Code
+
+### Async Test Fixtures
+```python
+import pytest
+import pytest_asyncio
+from unittest.mock import AsyncMock, Mock
+
+@pytest.fixture
+async def mock_http_session():
+    """Async fixture for HTTP session"""
+    session = Mock()
+    session.get = AsyncMock()
+    session.post = AsyncMock()
+    session.close = AsyncMock()
+
+    yield session
+
+    # Cleanup
+    session.close.assert_called_once()
+
+@pytest.fixture
+async def mock_database():
+    """Async fixture for database connection"""
+    db = Mock()
+    db.connect = AsyncMock()
+    db.execute = AsyncMock()
+    db.close = AsyncMock()
+
+    # Setup
+    await db.connect()
+
+    yield db
+
+    # Teardown
+    await db.close()
+
+@pytest.mark.asyncio
+async def test_async_function(mock_http_session):
+    """Test async function with mocked dependencies"""
+    # Arrange
+    mock_response = Mock()
+    mock_response.json = AsyncMock(return_value={'result': 'success'})
+    mock_response.raise_for_status = Mock()
+
+    mock_http_session.get.return_value.__aenter__.return_value = mock_response
+
+    # Act
+    result = await fetch_data('http://api.example.com/data')
+
+    # Assert
+    assert result == {'result': 'success'}
+    mock_http_session.get.assert_called_once_with('http://api.example.com/data')
+```
+
+### Async Test Utilities
+```python
+import asyncio
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+@asynccontextmanager
+async def temporary_event_loop():
+    """Create temporary event loop for testing"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        yield loop
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+async def wait_for_condition(condition_func, timeout: float = 5.0, interval: float = 0.1):
+    """Wait for a condition to become true"""
+    start_time = asyncio.get_event_loop().time()
+
+    while asyncio.get_event_loop().time() - start_time < timeout:
+        if await condition_func():
+            return True
+        await asyncio.sleep(interval)
+
+    raise asyncio.TimeoutError(f"Condition not met within {timeout} seconds")
+
+# Usage in tests
+@pytest.mark.asyncio
+async def test_background_task_completion():
+    """Test that background task completes"""
+    completed = False
+
+    async def background_task():
+        nonlocal completed
+        await asyncio.sleep(0.1)
+        completed = True
+
+    # Start background task
+    task = asyncio.create_task(background_task())
+
+    # Wait for completion
+    await wait_for_condition(lambda: completed)
+
+    assert completed
+    await task  # Ensure task completes without exceptions
+```
+
+## Performance Monitoring
+
+### Async Performance Profiling
+```python
+import time
+import functools
+from typing import Callable, Any
+import asyncio
+
+def async_performance_monitor(func: Callable) -> Callable:
+    """Decorator to monitor async function performance"""
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs) -> Any:
+        start_time = time.perf_counter()
+
+        try:
+            result = await func(*args, **kwargs)
+
+            execution_time = time.perf_counter() - start_time
+
+            # Log performance metrics
+            logger.info(
+                f"Async function {func.__name__} completed",
+                extra={
+                    'execution_time': execution_time,
+                    'function': func.__name__,
+                    'args_count': len(args),
+                    'kwargs_count': len(kwargs)
+                }
+            )
+
+            # Alert on slow functions
+            if execution_time > 1.0:  # More than 1 second
+                logger.warning(
+                    f"Slow async function: {func.__name__} took {execution_time:.2f}s"
+                )
+
+            return result
+
+        except Exception as e:
+            execution_time = time.perf_counter() - start_time
+            logger.error(
+                f"Async function {func.__name__} failed after {execution_time:.2f}s: {e}"
+            )
+            raise
+
+    return wrapper
+
+# Usage
+class MyBot(commands.Bot):
+    @async_performance_monitor
+    async def process_message(self, content: str, user_id: int) -> str:
+        """Process message with performance monitoring"""
+        # Simulate processing time
+        await asyncio.sleep(0.1)
+
+        response = await self.generate_ai_response(content)
+        return response
+
+    @async_performance_monitor
+    async def generate_ai_response(self, prompt: str) -> str:
+        """Generate AI response with performance monitoring"""
+        # This might be slow, so we monitor it
+        return await self.ai_client.generate(prompt)
+```
+
+### Async Task Monitoring
+```python
+class AsyncTaskMonitor:
+    """Monitor async tasks for performance and health"""
+
+    def __init__(self):
+        self.active_tasks: Dict[str, Dict[str, Any]] = {}
+        self.completed_tasks: List[Dict[str, Any]] = []
+        self.max_completed_history = 1000
+
+    def track_task(self, task: asyncio.Task, name: str = None):
+        """Start tracking an async task"""
+        task_info = {
+            'name': name or f'task_{id(task)}',
+            'start_time': asyncio.get_event_loop().time(),
+            'task': task
+        }
+
+        self.active_tasks[task_info['name']] = task_info
+
+        # Add completion callback
+        task.add_done_callback(
+            lambda t: self._on_task_complete(task_info['name'], t)
+        )
+
+    def _on_task_complete(self, task_name: str, task: asyncio.Task):
+        """Handle task completion"""
+        if task_name not in self.active_tasks:
+            return
+
+        task_info = self.active_tasks.pop(task_name)
+        end_time = asyncio.get_event_loop().time()
+
+        completion_info = {
+            'name': task_name,
+            'start_time': task_info['start_time'],
+            'end_time': end_time,
+            'duration': end_time - task_info['start_time'],
+            'exception': None,
+            'cancelled': task.cancelled()
+        }
+
+        # Get exception if any
+        if task.exception():
+            completion_info['exception'] = str(task.exception())
+
+        # Store completion info
+        self.completed_tasks.append(completion_info)
+
+        # Keep only recent history
+        if len(self.completed_tasks) > self.max_completed_history:
+            self.completed_tasks = self.completed_tasks[-self.max_completed_history:]
+
+        # Log completion
+        if completion_info['exception']:
+            logger.error(
+                f"Task {task_name} failed: {completion_info['exception']}"
+            )
+        elif completion_info['cancelled']:
+            logger.info(f"Task {task_name} was cancelled")
+        else:
+            logger.info(
+                f"Task {task_name} completed in {completion_info['duration']:.2f}s"
+            )
+
+    def get_active_tasks(self) -> List[str]:
+        """Get list of currently active task names"""
+        return list(self.active_tasks.keys())
+
+    def get_task_stats(self) -> Dict[str, Any]:
+        """Get statistics about completed tasks"""
+        if not self.completed_tasks:
+            return {}
+
+        durations = [t['duration'] for t in self.completed_tasks]
+        exceptions = [t for t in self.completed_tasks if t['exception']]
+        cancelled = [t for t in self.completed_tasks if t['cancelled']]
+
+        return {
+            'total_completed': len(self.completed_tasks),
+            'average_duration': sum(durations) / len(durations),
+            'max_duration': max(durations),
+            'exceptions_count': len(exceptions),
+            'cancelled_count': len(cancelled),
+            'active_count': len(self.active_tasks)
+        }
+
+# Usage
+task_monitor = AsyncTaskMonitor()
+
+async def monitored_async_function(self, param: str):
+    """Function with automatic task monitoring"""
+    # This will be automatically tracked
+    task = asyncio.create_task(self.do_work(param))
+    task_monitor.track_task(task, f"work_{param}")
+
+    return await task
+```

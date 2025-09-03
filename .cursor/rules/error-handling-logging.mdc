@@ -1,0 +1,876 @@
+---
+globs: src/*.py,*.py
+description: Error handling patterns and logging best practices
+---
+
+# Error Handling & Logging Best Practices
+
+## Logging Configuration
+
+### Centralized Logger Setup
+```python
+# ✅ GOOD - Centralized logging configuration
+import logging
+import logging.handlers
+from pathlib import Path
+import sys
+
+class DiscordLogger:
+    """Centralized logging configuration for Discord bot"""
+
+    def __init__(self, log_level: str = "INFO", log_file: str = "discord_bot.log"):
+        self.logger = logging.getLogger("discord_bot")
+        self.logger.setLevel(getattr(logging, log_level.upper()))
+
+        # Remove existing handlers to avoid duplicates
+        self.logger.handlers.clear()
+
+        # Create formatters
+        detailed_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
+        simple_formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+
+        # Console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(simple_formatter)
+        self.logger.addHandler(console_handler)
+
+        # File handler with rotation
+        log_path = Path(log_file)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(detailed_formatter)
+        self.logger.addHandler(file_handler)
+
+        # Error file handler
+        error_handler = logging.handlers.RotatingFileHandler(
+            log_path.with_suffix('.error.log'),
+            maxBytes=5*1024*1024,  # 5MB
+            backupCount=3
+        )
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(detailed_formatter)
+        self.logger.addHandler(error_handler)
+
+    def get_logger(self):
+        """Get the configured logger"""
+        return self.logger
+
+# Usage
+logger = DiscordLogger().get_logger()
+
+# Log levels
+logger.debug("Detailed debug information")
+logger.info("General information about bot operation")
+logger.warning("Warning about potential issues")
+logger.error("Error that doesn't stop execution")
+logger.critical("Critical error requiring immediate attention")
+```
+
+### Structured Logging with Context
+```python
+# ✅ GOOD - Structured logging with context
+import json
+from typing import Any, Dict, Optional
+
+class StructuredLogger:
+    """Logger with structured data support"""
+
+    def __init__(self, base_logger):
+        self.logger = base_logger
+
+    def _format_extra(self, extra: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+        """Format extra data for logging"""
+        if not extra and not kwargs:
+            return ""
+
+        all_extra = {**(extra or {}), **kwargs}
+        return f" | {json.dumps(all_extra, default=str)}"
+
+    def info(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        """Log info with structured data"""
+        extra_str = self._format_extra(extra, **kwargs)
+        self.logger.info(f"{message}{extra_str}")
+
+    def error(self, message: str, exc_info: bool = True, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        """Log error with structured data"""
+        extra_str = self._format_extra(extra, **kwargs)
+        self.logger.error(f"{message}{extra_str}", exc_info=exc_info)
+
+    def warning(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        """Log warning with structured data"""
+        extra_str = self._format_extra(extra, **kwargs)
+        self.logger.warning(f"{message}{extra_str}")
+
+    def debug(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        """Log debug with structured data"""
+        extra_str = self._format_extra(extra, **kwargs)
+        self.logger.debug(f"{message}{extra_str}")
+
+# Usage
+structured_logger = StructuredLogger(logger)
+
+# Log with context
+structured_logger.info(
+    "User sent message",
+    user_id=123456789,
+    message_length=len(message.content),
+    channel_type=type(message.channel).__name__
+)
+
+structured_logger.error(
+    "Failed to process AI request",
+    user_id=123456789,
+    provider="openai",
+    error_type="RateLimitError",
+    retry_after=60
+)
+```
+
+## Error Handling Patterns
+
+### Global Exception Handling
+```python
+import sys
+import traceback
+from typing import Optional, Callable, Any
+
+class ErrorHandler:
+    """Global error handling for Discord bot"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.error_handlers: Dict[str, Callable] = {}
+
+    def register_handler(self, error_type: str, handler: Callable):
+        """Register custom error handler"""
+        self.error_handlers[error_type] = handler
+
+    def handle_error(self, error: Exception, context: str = "", **kwargs):
+        """Handle error with appropriate logging and recovery"""
+        error_type = type(error).__name__
+        error_message = str(error)
+
+        # Log error with full context
+        self.logger.error(
+            f"Error in {context}: {error_message}",
+            extra={
+                'error_type': error_type,
+                'context': context,
+                'traceback': traceback.format_exc(),
+                **kwargs
+            },
+            exc_info=True
+        )
+
+        # Try custom handler
+        if error_type in self.error_handlers:
+            try:
+                return self.error_handlers[error_type](error, context, **kwargs)
+            except Exception as handler_error:
+                self.logger.error(f"Error handler failed: {handler_error}")
+
+        # Default error handling
+        return self._default_error_handling(error, context)
+
+    def _default_error_handling(self, error: Exception, context: str):
+        """Default error handling strategy"""
+        error_type = type(error).__name__
+
+        # Network errors - retry
+        if error_type in ['ConnectionError', 'TimeoutError', 'ClientError']:
+            return {'action': 'retry', 'delay': 5}
+
+        # Authentication errors - re-authenticate
+        elif error_type in ['AuthenticationError', 'InvalidTokenError']:
+            return {'action': 're_authenticate'}
+
+        # Rate limit errors - wait
+        elif error_type == 'RateLimitError':
+            return {'action': 'wait', 'delay': getattr(error, 'retry_after', 60)}
+
+        # Configuration errors - fail
+        elif error_type in ['ConfigurationError', 'ValueError']:
+            return {'action': 'fail', 'message': 'Configuration error'}
+
+        # Unknown errors - log and continue
+        else:
+            return {'action': 'continue', 'log_only': True}
+
+# Usage
+error_handler = ErrorHandler(logger)
+
+async def safe_api_call(self, url: str, **kwargs):
+    """Make API call with comprehensive error handling"""
+    try:
+        return await self._make_request(url, **kwargs)
+
+    except Exception as e:
+        context = f"API call to {url}"
+        result = error_handler.handle_error(e, context, **kwargs)
+
+        if result['action'] == 'retry':
+            await asyncio.sleep(result['delay'])
+            return await self.safe_api_call(url, **kwargs)
+
+        elif result['action'] == 're_authenticate':
+            await self.refresh_token()
+            return await self.safe_api_call(url, **kwargs)
+
+        elif result['action'] == 'wait':
+            await asyncio.sleep(result['delay'])
+            return await self.safe_api_call(url, **kwargs)
+
+        elif result['action'] == 'fail':
+            raise ValueError(result.get('message', 'API call failed'))
+
+        # For 'continue' action, return None or default value
+        return None
+```
+
+### Discord-Specific Error Handling
+```python
+import discord
+from discord.ext import commands
+
+class DiscordErrorHandler:
+    """Handle Discord-specific errors"""
+
+    def __init__(self, bot, logger):
+        self.bot = bot
+        self.logger = logger
+
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError):
+        """Global command error handler"""
+        if isinstance(error, commands.CommandNotFound):
+            # Ignore unknown commands
+            return
+
+        elif isinstance(error, commands.MissingPermissions):
+            embed = discord.Embed(
+                title="❌ Permissões Insuficientes",
+                description="Você não tem permissão para usar este comando.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+
+        elif isinstance(error, commands.CommandOnCooldown):
+            embed = discord.Embed(
+                title="⏰ Comando em Cooldown",
+                description=f"Tente novamente em {error.retry_after:.1f} segundos.",
+                color=discord.Color.yellow()
+            )
+            await ctx.send(embed=embed)
+
+        elif isinstance(error, commands.BadArgument):
+            embed = discord.Embed(
+                title="❌ Argumento Inválido",
+                description=f"Argumento incorreto: {error}\nUse `!help {ctx.command.name}` para ver o uso correto.",
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
+
+        elif isinstance(error, commands.MissingRequiredArgument):
+            embed = discord.Embed(
+                title="❌ Argumento Faltando",
+                description=f"Argumento obrigatório faltando: `{error.param.name}`\nUse `!help {ctx.command.name}` para ver o uso correto.",
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
+
+        else:
+            # Log unexpected errors
+            self.logger.error(
+                f"Unexpected command error: {error}",
+                extra={
+                    'command': ctx.command.name if ctx.command else 'unknown',
+                    'user': ctx.author.id,
+                    'channel': ctx.channel.id,
+                    'guild': ctx.guild.id if ctx.guild else None
+                },
+                exc_info=True
+            )
+
+            embed = discord.Embed(
+                title="❌ Erro Interno",
+                description="Ocorreu um erro interno. Os administradores foram notificados.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+
+    async def on_error(self, event: str, *args, **kwargs):
+        """Global event error handler"""
+        self.logger.error(
+            f"Error in event {event}",
+            extra={
+                'event': event,
+                'args': str(args),
+                'kwargs': str(kwargs)
+            },
+            exc_info=True
+        )
+
+    async def handle_interaction_error(self, interaction: discord.Interaction, error: Exception):
+        """Handle slash command errors"""
+        error_message = "❌ Ocorreu um erro ao processar o comando."
+
+        try:
+            # Try to send error message
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_message, ephemeral=True)
+            else:
+                await interaction.followup.send(error_message, ephemeral=True)
+
+        except discord.HTTPException:
+            # If we can't send the error message, just log it
+            pass
+
+        # Log the error
+        self.logger.error(
+            f"Interaction error: {error}",
+            extra={
+                'command': interaction.command.name if interaction.command else 'unknown',
+                'user': interaction.user.id,
+                'guild': interaction.guild.id if interaction.guild else None,
+                'interaction_type': type(interaction).__name__
+            },
+            exc_info=True
+        )
+
+# Setup error handling
+error_handler = DiscordErrorHandler(bot, logger)
+
+@bot.event
+async def on_command_error(ctx, error):
+    await error_handler.on_command_error(ctx, error)
+
+@bot.event
+async def on_error(event, *args, **kwargs):
+    await error_handler.on_error(event, *args, **kwargs)
+```
+
+### Graceful Degradation
+```python
+class GracefulDegradation:
+    """Handle service failures gracefully"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.service_status = {
+            'openai': True,
+            'claude': True,
+            'gemini': True,
+            'g4f': True
+        }
+        self.failure_counts = {
+            'openai': 0,
+            'claude': 0,
+            'gemini': 0,
+            'g4f': 0
+        }
+        self.max_failures = 5
+        self.recovery_time = 300  # 5 minutes
+
+    def record_failure(self, service: str):
+        """Record service failure"""
+        self.failure_counts[service] += 1
+
+        if self.failure_counts[service] >= self.max_failures:
+            self.service_status[service] = False
+            self.logger.warning(f"Service {service} disabled due to repeated failures")
+
+            # Schedule recovery
+            asyncio.create_task(self._schedule_recovery(service))
+
+    async def _schedule_recovery(self, service: str):
+        """Schedule service recovery"""
+        await asyncio.sleep(self.recovery_time)
+
+        # Reset failure count
+        self.failure_counts[service] = 0
+        self.service_status[service] = True
+
+        self.logger.info(f"Service {service} re-enabled after recovery period")
+
+    def is_service_available(self, service: str) -> bool:
+        """Check if service is available"""
+        return self.service_status.get(service, False)
+
+    def get_available_services(self) -> list:
+        """Get list of currently available services"""
+        return [service for service, available in self.service_status.items() if available]
+
+    async def execute_with_fallback(self, operation: str, *services: str):
+        """Execute operation with fallback to available services"""
+        for service in services:
+            if not self.is_service_available(service):
+                continue
+
+            try:
+                result = await self._execute_on_service(operation, service)
+                return result
+
+            except Exception as e:
+                self.logger.warning(f"Operation {operation} failed on {service}: {e}")
+                self.record_failure(service)
+                continue
+
+        # All services failed
+        raise Exception(f"All services failed for operation: {operation}")
+
+    async def _execute_on_service(self, operation: str, service: str):
+        """Execute operation on specific service"""
+        if service == 'openai':
+            return await self._openai_operation(operation)
+        elif service == 'claude':
+            return await self._claude_operation(operation)
+        elif service == 'gemini':
+            return await self._gemini_operation(operation)
+        elif service == 'g4f':
+            return await self._g4f_operation(operation)
+        else:
+            raise ValueError(f"Unknown service: {service}")
+
+# Usage
+degradation_handler = GracefulDegradation(logger)
+
+async def generate_response(self, prompt: str) -> str:
+    """Generate AI response with graceful degradation"""
+    try:
+        return await degradation_handler.execute_with_fallback(
+            prompt, 'openai', 'claude', 'gemini', 'g4f'
+        )
+
+    except Exception as e:
+        self.logger.error(f"All AI services failed: {e}")
+        return "❌ Todos os serviços de IA estão indisponíveis no momento. Tente novamente mais tarde."
+```
+
+## Recovery Strategies
+
+### Circuit Breaker Pattern
+```python
+import time
+from enum import Enum
+from typing import Optional, Callable, Any
+
+class CircuitState(Enum):
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"         # Circuit is open, failing fast
+    HALF_OPEN = "half_open"  # Testing if service recovered
+
+class CircuitBreaker:
+    """Circuit breaker for external service calls"""
+
+    def __init__(self,
+                 failure_threshold: int = 5,
+                 recovery_timeout: int = 60,
+                 expected_exception: Exception = Exception):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.expected_exception = expected_exception
+
+        self.failure_count = 0
+        self.last_failure_time: Optional[float] = None
+        self.state = CircuitState.CLOSED
+
+    def _can_attempt_reset(self) -> bool:
+        """Check if enough time has passed to attempt reset"""
+        if self.last_failure_time is None:
+            return True
+
+        return time.time() - self.last_failure_time >= self.recovery_timeout
+
+    def _record_success(self):
+        """Record successful operation"""
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = CircuitState.CLOSED
+
+    def _record_failure(self):
+        """Record failed operation"""
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+
+        if self.failure_count >= self.failure_threshold:
+            self.state = CircuitState.OPEN
+
+    async def call(self, func: Callable, *args, **kwargs) -> Any:
+        """Execute function with circuit breaker protection"""
+        if self.state == CircuitState.OPEN:
+            if self._can_attempt_reset():
+                self.state = CircuitState.HALF_OPEN
+            else:
+                raise Exception("Circuit breaker is OPEN")
+
+        try:
+            result = await func(*args, **kwargs)
+
+            if self.state == CircuitState.HALF_OPEN:
+                self._record_success()
+
+            return result
+
+        except self.expected_exception as e:
+            self._record_failure()
+            raise e
+
+# Usage
+circuit_breaker = CircuitBreaker(
+    failure_threshold=3,
+    recovery_timeout=30,
+    expected_exception=aiohttp.ClientError
+)
+
+async def safe_api_call(self, url: str) -> dict:
+    """API call with circuit breaker protection"""
+    return await circuit_breaker.call(self._make_api_request, url)
+```
+
+### Retry Mechanisms
+```python
+import random
+from typing import Callable, Any, List, Type
+
+class RetryConfig:
+    """Configuration for retry behavior"""
+
+    def __init__(self,
+                 max_attempts: int = 3,
+                 base_delay: float = 1.0,
+                 max_delay: float = 60.0,
+                 backoff_factor: float = 2.0,
+                 jitter: bool = True,
+                 exceptions: List[Type[Exception]] = None):
+        self.max_attempts = max_attempts
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.backoff_factor = backoff_factor
+        self.jitter = jitter
+        self.exceptions = exceptions or [Exception]
+
+class RetryHandler:
+    """Advanced retry handler with exponential backoff"""
+
+    def __init__(self, config: RetryConfig, logger):
+        self.config = config
+        self.logger = logger
+
+    def _calculate_delay(self, attempt: int) -> float:
+        """Calculate delay with exponential backoff and jitter"""
+        delay = min(
+            self.config.base_delay * (self.config.backoff_factor ** attempt),
+            self.config.max_delay
+        )
+
+        if self.config.jitter:
+            # Add random jitter to prevent thundering herd
+            delay *= (0.5 + random.random() * 0.5)
+
+        return delay
+
+    def _should_retry(self, exception: Exception) -> bool:
+        """Check if exception should trigger retry"""
+        return any(isinstance(exception, exc_type) for exc_type in self.config.exceptions)
+
+    async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
+        """Execute function with retry logic"""
+        last_exception = None
+
+        for attempt in range(self.config.max_attempts):
+            try:
+                return await func(*args, **kwargs)
+
+            except Exception as e:
+                last_exception = e
+
+                if not self._should_retry(e):
+                    # Don't retry this type of exception
+                    raise e
+
+                if attempt == self.config.max_attempts - 1:
+                    # Last attempt failed
+                    self.logger.error(
+                        f"Function failed after {self.config.max_attempts} attempts: {e}",
+                        extra={'attempts': attempt + 1}
+                    )
+                    raise e
+
+                # Calculate delay and retry
+                delay = self._calculate_delay(attempt)
+
+                self.logger.warning(
+                    f"Attempt {attempt + 1} failed, retrying in {delay:.2f}s: {e}",
+                    extra={'attempt': attempt + 1, 'delay': delay}
+                )
+
+                await asyncio.sleep(delay)
+
+        # This should never be reached, but just in case
+        raise last_exception
+
+# Usage
+retry_config = RetryConfig(
+    max_attempts=5,
+    base_delay=1.0,
+    max_delay=30.0,
+    backoff_factor=1.5,
+    jitter=True,
+    exceptions=[aiohttp.ClientError, asyncio.TimeoutError]
+)
+
+retry_handler = RetryHandler(retry_config, logger)
+
+async def reliable_api_call(self, url: str) -> dict:
+    """Make reliable API call with comprehensive retry logic"""
+    return await retry_handler.execute_with_retry(self._make_api_request, url)
+```
+
+## Monitoring and Alerting
+
+### Health Checks
+```python
+from typing import Dict, List, Callable, Awaitable
+import asyncio
+
+class HealthMonitor:
+    """Monitor service health and send alerts"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.services: Dict[str, Dict] = {}
+        self.alerts_sent: Dict[str, float] = {}
+        self.alert_cooldown = 300  # 5 minutes
+
+    def register_service(self, name: str, health_check: Callable[[], Awaitable[bool]], alert_threshold: int = 3):
+        """Register a service for health monitoring"""
+        self.services[name] = {
+            'health_check': health_check,
+            'alert_threshold': alert_threshold,
+            'failures': 0,
+            'last_check': None,
+            'healthy': True
+        }
+
+    async def check_health(self):
+        """Check health of all registered services"""
+        for name, service in self.services.items():
+            try:
+                healthy = await service['health_check']()
+                service['last_check'] = asyncio.get_event_loop().time()
+
+                if healthy:
+                    if not service['healthy']:
+                        # Service recovered
+                        self.logger.info(f"Service {name} recovered")
+                        service['failures'] = 0
+                        service['healthy'] = True
+                else:
+                    # Service failed
+                    service['failures'] += 1
+                    service['healthy'] = False
+
+                    if service['failures'] >= service['alert_threshold']:
+                        await self._send_alert(name, service)
+
+            except Exception as e:
+                self.logger.error(f"Health check failed for {name}: {e}")
+                service['failures'] += 1
+                service['healthy'] = False
+
+    async def _send_alert(self, service_name: str, service: dict):
+        """Send alert for unhealthy service"""
+        now = asyncio.get_event_loop().time()
+
+        # Check cooldown
+        if service_name in self.alerts_sent:
+            last_alert = self.alerts_sent[service_name]
+            if now - last_alert < self.alert_cooldown:
+                return  # Too soon for another alert
+
+        # Send alert
+        self.alerts_sent[service_name] = now
+
+        alert_message = (
+            f"🚨 ALERT: Service {service_name} is unhealthy!\n"
+            f"Failures: {service['failures']}\n"
+            f"Last check: {service['last_check']}"
+        )
+
+        self.logger.error(alert_message)
+
+        # Here you could send Discord notification, email, etc.
+        await self._notify_administrators(alert_message)
+
+    async def _notify_administrators(self, message: str):
+        """Notify administrators about service issues"""
+        # Implementation depends on your notification system
+        # Could send Discord message, email, Slack, etc.
+        pass
+
+    def get_health_status(self) -> Dict[str, Dict]:
+        """Get health status of all services"""
+        return {
+            name: {
+                'healthy': service['healthy'],
+                'failures': service['failures'],
+                'last_check': service['last_check']
+            }
+            for name, service in self.services.items()
+        }
+
+# Usage
+health_monitor = HealthMonitor(logger)
+
+# Register services
+health_monitor.register_service(
+    'openai_api',
+    lambda: check_openai_health(),
+    alert_threshold=3
+)
+
+health_monitor.register_service(
+    'discord_connection',
+    lambda: check_discord_connection(),
+    alert_threshold=1
+)
+
+# Check health periodically
+async def health_check_loop():
+    """Run health checks in background"""
+    while True:
+        await health_monitor.check_health()
+        await asyncio.sleep(60)  # Check every minute
+
+# Start health monitoring
+asyncio.create_task(health_check_loop())
+```
+
+### Performance Metrics
+```python
+import time
+from collections import defaultdict, deque
+from typing import Dict, List, Any, Optional
+
+class PerformanceMonitor:
+    """Monitor performance metrics for the bot"""
+
+    def __init__(self, logger, max_history: int = 1000):
+        self.logger = logger
+        self.max_history = max_history
+        self.metrics: Dict[str, deque] = defaultdict(lambda: deque(maxlen=max_history))
+
+    def record_metric(self, name: str, value: float, **tags):
+        """Record a performance metric"""
+        metric_data = {
+            'value': value,
+            'timestamp': time.time(),
+            'tags': tags
+        }
+
+        self.metrics[name].append(metric_data)
+
+        # Log significant metrics
+        if name == 'response_time' and value > 5.0:
+            self.logger.warning(f"Slow response: {value:.2f}s", extra=tags)
+
+    def get_metrics(self, name: str, time_window: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Get metrics for a specific name"""
+        metrics = list(self.metrics[name])
+
+        if time_window:
+            cutoff = time.time() - time_window
+            metrics = [m for m in metrics if m['timestamp'] > cutoff]
+
+        return metrics
+
+    def get_statistics(self, name: str, time_window: Optional[float] = None) -> Dict[str, float]:
+        """Get statistics for a metric"""
+        metrics = self.get_metrics(name, time_window)
+
+        if not metrics:
+            return {}
+
+        values = [m['value'] for m in metrics]
+
+        return {
+            'count': len(values),
+            'average': sum(values) / len(values),
+            'min': min(values),
+            'max': max(values),
+            'p95': sorted(values)[int(len(values) * 0.95)],
+            'p99': sorted(values)[int(len(values) * 0.99)]
+        }
+
+# Usage
+performance_monitor = PerformanceMonitor(logger)
+
+class MyBot(commands.Bot):
+    async def process_message(self, content: str, user_id: int) -> str:
+        """Process message with performance monitoring"""
+        start_time = time.time()
+
+        try:
+            # Process the message
+            response = await self._generate_response(content, user_id)
+
+            # Record performance
+            processing_time = time.time() - start_time
+            performance_monitor.record_metric(
+                'response_time',
+                processing_time,
+                user_id=user_id,
+                message_length=len(content),
+                response_length=len(response)
+            )
+
+            return response
+
+        except Exception as e:
+            # Record error metrics
+            processing_time = time.time() - start_time
+            performance_monitor.record_metric(
+                'error_time',
+                processing_time,
+                user_id=user_id,
+                error_type=type(e).__name__
+            )
+
+            raise
+
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get comprehensive performance statistics"""
+        stats = {}
+
+        # Response time statistics
+        response_stats = performance_monitor.get_statistics('response_time', 3600)  # Last hour
+        if response_stats:
+            stats['response_time'] = response_stats
+
+        # Error statistics
+        error_stats = performance_monitor.get_statistics('error_time', 3600)
+        if error_stats:
+            stats['error_time'] = error_stats
+
+        # Command usage statistics
+        command_metrics = performance_monitor.get_metrics('command_used', 86400)  # Last 24h
+        if command_metrics:
+            command_counts = defaultdict(int)
+            for metric in command_metrics:
+                command_counts[metric['tags'].get('command', 'unknown')] += 1
+
+            stats['command_usage'] = dict(command_counts)
+
+        return stats
+```

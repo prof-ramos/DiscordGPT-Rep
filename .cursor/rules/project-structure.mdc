@@ -1,0 +1,37 @@
+---
+alwaysApply: true
+description: Project structure and module organization guidelines
+---
+
+# Project Structure & Module Organization
+
+## Core Modules (`src/`)
+- [`src/bot.py`](mdc:src/bot.py) - Main Discord bot logic and event handlers
+- [`src/providers.py`](mdc:src/providers.py) - LLM provider adapters (OpenAI, Claude, Gemini, Grok)
+- [`src/aclient.py`](mdc:src/aclient.py) - Async HTTP client for LLM API calls
+- [`src/personas.py`](mdc:src/personas.py) - Prompt and persona registry management
+- [`src/log.py`](mdc:src/log.py) - Centralized logging configuration
+
+## Entry Points
+- [`main.py`](mdc:main.py) - CLI entry point to run the Discord bot
+- [`start_admin.py`](mdc:start_admin.py) - Streamlit admin panel (local dashboard at http://localhost:8501)
+
+## Testing & Documentation
+- `tests/` - Pytest unit/integration tests ([`tests/test_*.py`](mdc:tests/test_*.py))
+- `docs/` - User/developer documentation with Hugo static site generation
+- `utils/` - Helper utilities (local use only)
+
+## Configuration & Assets
+- `.env` - Environment variables (copy from [`.env.example`](mdc:.env.example))
+- `system_prompt.txt` - Base system prompt for LLM interactions
+- `docker-compose.yml` & `Dockerfile` - Containerization setup
+
+## Development Workflow
+- Install: `pip install -r requirements.txt`
+- Run bot: `python main.py`
+- Run admin: `python start_admin.py`
+- Docker dev: `docker compose up -d`
+- Tests: `pytest -v` or `pytest -m "unit and not slow"`
+
+## Provider Isolation
+Keep provider integrations isolated in [`src/providers.py`](mdc:src/providers.py). Do not leak provider-specific details across modules.

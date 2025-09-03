@@ -1,0 +1,136 @@
+---
+globs: .env*,*.env,*.cfg,*.ini,*.yaml,*.yml
+description: Security and configuration management guidelines
+---
+
+# Security & Configuration
+
+## Environment Variables & Secrets
+**NEVER commit secrets to version control!**
+
+### Required Configuration
+Create `.env` from [`.env.example`](mdc:.env.example):
+```bash
+cp .env.example .env
+```
+
+### Essential Variables
+```bash
+# Discord Bot Token (REQUIRED)
+DISCORD_BOT_TOKEN=your_bot_token_here
+
+# LLM Provider Keys (at least one required)
+OPENAI_KEY=your_openai_key
+CLAUDE_KEY=your_anthropic_key
+GEMINI_KEY=your_google_key
+GROK_KEY=your_xai_key
+
+# Admin Configuration
+ADMIN_USER_IDS=123456789,987654321
+```
+
+## Admin-Only Features
+### Jailbreak Personas
+Jailbreak personas are **admin-only** and require validation:
+```python
+from src.log import logger
+
+def is_admin(user_id: int) -> bool:
+    admin_ids = os.getenv("ADMIN_USER_IDS", "").split(",")
+    return str(user_id) in admin_ids
+
+async def handle_jailbreak_request(user_id: int, persona: str):
+    if not is_admin(user_id):
+        logger.warning(f"Unauthorized jailbreak attempt by user {user_id}")
+        return "Access denied: Admin privileges required"
+
+    # Proceed with jailbreak persona loading
+    return await load_restricted_persona(persona)
+```
+
+## Security Best Practices
+### Input Validation
+- Validate all user inputs before processing
+- Sanitize Discord mentions, links, and special characters
+- Limit message length and rate limit requests
+
+### Error Handling
+- Never expose internal errors or stack traces to users
+- Log security events with appropriate severity levels
+- Implement graceful degradation for service failures
+
+### API Key Management
+```python
+# Secure key validation
+def validate_provider_keys():
+    providers = {
+        "openai": os.getenv("OPENAI_KEY"),
+        "claude": os.getenv("CLAUDE_KEY"),
+        "gemini": os.getenv("GEMINI_KEY"),
+        "grok": os.getenv("GROK_KEY")
+    }
+
+    available_providers = [k for k, v in providers.items() if v]
+    if not available_providers:
+        logger.error("No LLM provider keys configured!")
+        raise ValueError("At least one LLM provider key required")
+
+    logger.info(f"Available providers: {', '.join(available_providers)}")
+    return providers
+```
+
+## Docker Security
+### Container Best Practices
+- Use multi-stage builds to minimize attack surface
+- Run as non-root user when possible
+- Don't store secrets in Docker images
+
+### Docker Compose Configuration
+```yaml
+# docker-compose.yml security considerations
+version: '3.8'
+services:
+  discord-bot:
+    build: .
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - OPENAI_KEY=${OPENAI_KEY}
+    env_file:
+      - .env  # Load from external file
+    restart: unless-stopped
+```
+
+## Logging Security
+### Sensitive Data Handling
+- Never log API keys, tokens, or passwords
+- Sanitize user messages in logs (remove potential secrets)
+- Use appropriate log levels for sensitive operations
+
+```python
+# Safe logging example
+logger.info(f"User {user_id} requested persona: {persona_name}")
+# AVOID: logger.info(f"Processing with key: {api_key}")
+```
+
+## Access Control
+### Permission Validation
+- Validate Discord permissions before executing privileged commands
+- Implement role-based access for admin features
+- Log all permission checks and failures
+
+### Rate Limiting
+- Implement rate limiting for expensive operations
+- Use exponential backoff for API failures
+- Monitor for abuse patterns
+
+## Deployment Security
+### Production Considerations
+- Use environment-specific configurations
+- Enable HTTPS for admin panel in production
+- Regularly rotate API keys and tokens
+- Monitor for suspicious activity patterns
+
+### Backup & Recovery
+- Backup configuration files securely
+- Document recovery procedures
+- Test backup restoration regularly
