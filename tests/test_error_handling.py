@@ -1,5 +1,6 @@
 
 import pytest
+import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 import discord
 

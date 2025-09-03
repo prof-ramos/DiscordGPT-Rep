@@ -5,7 +5,7 @@ from unittest.mock import Mock, AsyncMock, patch
 import time
 
 from src.aclient import DiscordClient
-from src.providers import ProviderManager
+from src.providers import ProviderManager, ProviderType
 
 
 class TestPerformance:

@@ -123,7 +123,7 @@ def is_valid_persona(persona_name: str) -> bool:
 
 def is_jailbreak_persona(name: str) -> bool:
     """Check if persona is a jailbreak persona (restricted)"""
-    jailbreak_personas = ["jailbreak-v1", "jailbreak-v2", "jailbreak-v3"]
+    jailbreak_personas = ["jailbreak", "jailbreak-v1", "jailbreak-v2", "jailbreak-v3"]
     return name in jailbreak_personas
 
 def is_restricted_persona(persona_name: str) -> bool:
