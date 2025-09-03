@@ -28,7 +28,8 @@ from pathlib import Path
 
 # Import das classes do bot
 from src.providers import ProviderManager, ProviderType
-from src.personas import PERSONAS, ADMIN_USER_IDS
+from src.personas import PERSONAS
+import os
 
 # Configuração da página
 st.set_page_config(
@@ -548,7 +549,13 @@ class AdminPanel:
         # Administradores
         st.subheader("👑 Administradores")
         
-        current_admins = list(ADMIN_USER_IDS)
+        # Read admin IDs from environment (comma-separated); tolerate blanks/comments
+        raw = os.getenv("ADMIN_USER_IDS", "")
+        current_admins = []
+        for tok in raw.split(','):
+            tok = tok.split('#', 1)[0].strip()
+            if tok.isdigit():
+                current_admins.append(int(tok))
         admin_text = "\n".join(current_admins) if current_admins else "Nenhum administrador configurado"
         
         col1, col2 = st.columns([2, 1])

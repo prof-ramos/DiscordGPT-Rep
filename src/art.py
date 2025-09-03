@@ -1,5 +1,4 @@
 import os
-
 from openai import AsyncOpenAI
 from g4f.client import AsyncClient
 from g4f.Provider import BingCreateImages, Gemini, OpenaiChat
@@ -33,11 +32,16 @@ def get_random_art() -> str:
     return art
 
 async def draw(model: str, prompt: str) -> str:
-    if os.getenv("OPENAI_ENABLED") == "False":
-        image_provider = get_image_provider(model)
-        g4f_client = AsyncClient(image_provider=image_provider)
-        response = await g4f_client.images.generate(prompt=prompt)
-    else:
+    """Generate an image URL.
+
+    - Uses OpenAI if enabled and configured; propagates errors to caller.
+    - Uses g4f provider when OpenAI is disabled via OPENAI_ENABLED=False.
+    """
+    openai_enabled = os.getenv("OPENAI_ENABLED", "True").lower() not in {"false", "0", "no", "n"}
+
+    if openai_enabled:
+        if not openai_client:
+            raise ValueError("OPENAI_KEY not configured for image generation")
         response = await openai_client.images.generate(
             model="gpt-image-1",
             prompt=prompt,
@@ -45,6 +49,11 @@ async def draw(model: str, prompt: str) -> str:
             quality="auto",
             n=1,
         )
+        return response.data[0].url
+
+    # g4f fallback path
+    image_provider = get_image_provider(model)
+    g4f_client = AsyncClient(image_provider=image_provider)
+    response = await g4f_client.images.generate(prompt=prompt)
+    # Expect response.data[0].url from tests
     return response.data[0].url
-
-

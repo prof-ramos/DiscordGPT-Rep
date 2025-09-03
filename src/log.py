@@ -37,43 +37,73 @@ class CustomFormatter(logging.Formatter):
         return output
 
 
-def setup_logger(module_name:str) -> logging.Logger:
-    # create logger
+def setup_logger(module_name: str) -> logging.Logger:
+    """Configure and return a module-specific logger.
+
+    Behavior:
+    - Always logs to console with colors.
+    - Logs to a rotating file by default (can be disabled with LOG_TO_FILE=False).
+    - Respects LOG_LEVEL, LOG_DIR, LOG_FILE env vars.
+    - Falls back to /tmp when LOG_DIR is not writable.
+    """
+    # Create/reuse a named logger per top-level library
     library, _, _ = module_name.partition('.py')
     logger = logging.getLogger(library)
-    logger.setLevel(logging.INFO)
 
-    log_level = "INFO"
-    level = logging.getLevelName(log_level.upper())
+    # Avoid duplicate handlers if called multiple times
+    if getattr(logger, "_configured", False):
+        return logger
 
-    # create console handler
+    # Levels and flags
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = logging.getLevelName(log_level)
+    logger.setLevel(level if isinstance(level, int) else logging.INFO)
+
+    # Console handler (always on)
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
+    console_handler.setLevel(logger.level)
     console_handler.setFormatter(CustomFormatter())
-    # Add console handler to logger
     logger.addHandler(console_handler)
 
-    if os.getenv("LOGGING") == "True":  # Check if logging is enabled
-        # Use /tmp for Docker read-only filesystem compatibility
-        log_dir = "/tmp" if os.path.exists("/tmp") else os.path.abspath(f"{__file__}/../../")
-        log_name = 'chatgpt_discord_bot.log'
-        log_path = os.path.join(log_dir, log_name)
+    # File handler (default on, can be disabled)
+    to_file = os.getenv("LOG_TO_FILE", os.getenv("LOGGING", "True")).lower() in {"1", "true", "yes", "y"}
+
+    if to_file:
+        # Determine directory and ensure it exists
+        desired_dir = os.getenv("LOG_DIR")
+        if desired_dir:
+            log_dir = Path(desired_dir)
+        else:
+            # Prefer project ./logs if writable, else /tmp
+            project_logs = Path.cwd() / "logs"
+            tmp_dir = Path("/tmp") if Path("/tmp").exists() else Path.cwd()
+            log_dir = project_logs if (project_logs.exists() or project_logs.parent.exists()) else tmp_dir
 
         try:
-            # create local log handler
-            log_handler = logging.handlers.RotatingFileHandler(
-                filename=log_path,
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # Fallback to /tmp or CWD if mkdir fails
+            fallback = Path("/tmp") if Path("/tmp").exists() else Path.cwd()
+            log_dir = fallback
+
+        log_name = os.getenv("LOG_FILE", "chatgpt_discord_bot.log")
+        log_path = log_dir / log_name
+
+        try:
+            file_handler = logging.handlers.RotatingFileHandler(
+                filename=str(log_path),
                 encoding='utf-8',
-                maxBytes=32 * 1024 * 1024,  # 32 MiB
-                backupCount=2,  # Rotate through 2 files
+                maxBytes=32 * 1024 * 1024,
+                backupCount=2,
             )
-            log_handler.setFormatter(CustomFormatter())
-            log_handler.setLevel(level)
-            logger.addHandler(log_handler)
+            file_handler.setFormatter(CustomFormatter())
+            file_handler.setLevel(logger.level)
+            logger.addHandler(file_handler)
         except (OSError, IOError) as e:
-            # If file logging fails (e.g., read-only filesystem), continue with console only
             logger.warning(f"Could not create log file at {log_path}: {e}. Using console logging only.")
 
+    # Mark configured to prevent duplicate handlers
+    logger._configured = True  # type: ignore[attr-defined]
     return logger
 
 logger = setup_logger(__name__)

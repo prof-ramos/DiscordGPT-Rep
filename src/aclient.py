@@ -37,9 +37,15 @@ class DiscordClient(commands.Bot):
         self.conversation_limit = int(os.getenv("CONVERSATION_HISTORY_LIMIT", "20"))
         self.trim_size = int(os.getenv("TRIM_CONVERSATION_SIZE", "8"))
         
-        # Admin users
-        admin_ids = os.getenv("ADMIN_USER_IDS", "")
-        self.admin_users = [int(uid.strip()) for uid in admin_ids.split(",") if uid.strip()]
+        # Admin users (robust parsing; ignore inline comments and invalid tokens)
+        admin_ids_raw = os.getenv("ADMIN_USER_IDS", "")
+        parsed_admin_ids = []
+        for token in admin_ids_raw.split(","):
+            # remove inline comments and whitespace
+            token = token.split("#", 1)[0].strip()
+            if token.isdigit():
+                parsed_admin_ids.append(int(token))
+        self.admin_users = parsed_admin_ids
         
         logger.info("Discord client initialized")
     
@@ -78,7 +84,10 @@ class DiscordClient(commands.Bot):
                 await send_split_message(message.channel, response, self.max_message_length)
             except Exception as e:
                 logger.error(f"Error handling DM: {e}")
-                await message.channel.send("❌ Erro ao processar mensagem.")
+                try:
+                    await message.channel.send("❌ Erro ao processar mensagem.")
+                except Exception:
+                    pass
     
     async def handle_message(self, content: str, user_id: int) -> str:
         """Handle message and generate AI response"""
@@ -92,10 +101,10 @@ class DiscordClient(commands.Bot):
             # Add user message to history
             history.append({"role": "user", "content": content})
             
-            # Trim history if too long
+            # Trim history if too long (keep recent pairs)
             if len(history) > self.conversation_limit:
-                # Keep system message and recent context
-                recent_messages = history[-self.trim_size:]
+                keep = self.trim_size * 2
+                recent_messages = history[-keep:]
                 self.conversation_histories[user_id] = recent_messages
                 history = recent_messages
             
@@ -110,6 +119,13 @@ class DiscordClient(commands.Bot):
             
             # Add AI response to history
             history.append({"role": "assistant", "content": response})
+            
+            # Post-append trim to ensure max recent context (pairs)
+            max_keep = self.trim_size * 2
+            if len(history) > max_keep:
+                trimmed = history[-max_keep:]
+                self.conversation_histories[user_id] = trimmed
+                history = trimmed
             
             return response
             
