@@ -1,0 +1,13 @@
+[run]
+branch = True
+source =
+    src
+    main.py
+omit =
+    src/DiscordBot.py
+
+[report]
+show_missing = True
+exclude_lines =
+    if __name__ == .__main__.: 
+    pragma: no cover
