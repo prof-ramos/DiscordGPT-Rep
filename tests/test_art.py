@@ -30,7 +30,9 @@ class TestArtModule:
             mock_response.data = [Mock()]
             mock_response.data[0].url = "https://example.com/image.png"
 
-            with patch('src.art.openai_client.images.generate', new=AsyncMock(return_value=mock_response)):
+            # Patch the module-level openai_client object directly
+            with patch('src.art.openai_client') as mock_client:
+                mock_client.images.generate = AsyncMock(return_value=mock_response)
                 result = await draw("openai", "A beautiful sunset")
 
                 assert result == "https://example.com/image.png"
@@ -72,6 +74,7 @@ class TestArtModule:
             "OPENAI_ENABLED": "True",
             "OPENAI_KEY": "test-key"
         }):
-            with patch('src.art.openai_client.images.generate', side_effect=Exception("API Error")):
+            with patch('src.art.openai_client') as mock_client:
+                mock_client.images.generate = AsyncMock(side_effect=Exception("API Error"))
                 with pytest.raises(Exception):
                     await draw("openai", "Test prompt")
